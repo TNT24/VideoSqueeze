@@ -10,7 +10,7 @@ public class MainForm : Form
     static readonly string SettingsPath =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "VideoSqueeze", "settings.json");
 
-    readonly ListView list = new()
+    readonly ListView list = new SmoothList
     {
         View = View.Details, FullRowSelect = true, AllowDrop = true, Dock = DockStyle.Fill, OwnerDraw = true,
         BorderStyle = BorderStyle.None, HeaderStyle = ColumnHeaderStyle.Nonclickable, ShowItemToolTips = true,
@@ -54,6 +54,7 @@ public class MainForm : Form
     List<ListViewItem>? queue; // the running batch; Retry appends to it
     bool lastRunEstimate;
     bool loading;
+    bool closeWhenStopped; // the window was closed mid-run; finish stopping first
 
     int S(int px) => (int)Math.Round(px * DeviceDpi / 96f);
 
@@ -312,7 +313,11 @@ public class MainForm : Form
     void DrawHeader(object? sender, DrawListViewColumnHeaderEventArgs e)
     {
         using (var b = new SolidBrush(Theme.Card)) e.Graphics.FillRectangle(b, e.Bounds);
-        using (var p = new Pen(Theme.Border)) e.Graphics.DrawLine(p, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+        using (var p = new Pen(Theme.Border))
+        {
+            e.Graphics.DrawLine(p, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
+            if (e.ColumnIndex < list.Columns.Count - 1) e.Graphics.DrawLine(p, e.Bounds.Right - 1, e.Bounds.Top, e.Bounds.Right - 1, e.Bounds.Bottom - 1);
+        }
         var r = Rectangle.Inflate(e.Bounds, -S(8), 0);
         var align = e.Header?.TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
         using var f = Theme.Body(8.5f, FontStyle.Bold);
@@ -323,9 +328,16 @@ public class MainForm : Form
     {
         if (e.Item == null || e.SubItem == null) return;
         bool selected = e.Item.Selected;
-        using (var b = new SolidBrush(selected ? Theme.Selection : Theme.Card)) e.Graphics.FillRectangle(b, e.Bounds);
-        if (e.ColumnIndex == 0)
-            using (var p = new Pen(Theme.Border)) e.Graphics.DrawLine(p, 0, e.Bounds.Bottom - 1, list.ClientSize.Width, e.Bounds.Bottom - 1);
+        // Each cell paints its own borders: a cell repainted on its own (e.g. a status update) would otherwise erase
+        // lines drawn by its neighbours. The last column also covers the strip left free for the scrollbar.
+        bool lastCol = e.ColumnIndex == list.Columns.Count - 1;
+        var cell = lastCol ? Rectangle.FromLTRB(e.Bounds.Left, e.Bounds.Top, Math.Max(e.Bounds.Right, list.ClientSize.Width), e.Bounds.Bottom) : e.Bounds;
+        using (var b = new SolidBrush(selected ? Theme.Selection : Theme.Card)) e.Graphics.FillRectangle(b, cell);
+        using (var p = new Pen(Theme.Border))
+        {
+            e.Graphics.DrawLine(p, cell.Left, cell.Bottom - 1, cell.Right, cell.Bottom - 1);
+            if (!lastCol) e.Graphics.DrawLine(p, cell.Right - 1, cell.Top, cell.Right - 1, cell.Bottom - 1);
+        }
 
         string text = e.SubItem.Text;
         Color color = Theme.Text;
@@ -518,7 +530,8 @@ public class MainForm : Form
         foreach (var p in paths)
         {
             IEnumerable<string> files = Directory.Exists(p)
-                ? Directory.EnumerateFiles(p, "*", SearchOption.AllDirectories)
+                // Skip folders Windows won't let us read (e.g. "System Volume Information" on a drive root) instead of crashing.
+                ? Directory.EnumerateFiles(p, "*", new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true })
                 : new[] { p };
             foreach (var f in files.Where(f => VideoExtensions.Contains(Path.GetExtension(f).ToLowerInvariant())).OrderBy(f => f))
             {
@@ -718,6 +731,7 @@ public class MainForm : Form
             queue = null;
             SetRunning(false);
         }
+        if (closeWhenStopped) { Close(); return; }
         bar.Value = 0;
         if (estimateOnly)
         {
@@ -855,12 +869,14 @@ public class MainForm : Form
     {
         if (cts != null)
         {
-            if (MessageBox.Show(this, "Encoding is in progress. Stop and exit?", Text, MessageBoxButtons.YesNo) == DialogResult.No)
-            {
-                e.Cancel = true;
-                return;
-            }
+            // Close only once the run has stopped, so its clean-up (deleting the half-written .part file) gets to run.
+            e.Cancel = true;
+            if (closeWhenStopped) return;
+            if (MessageBox.Show(this, "Encoding is in progress. Stop and exit?", Text, MessageBoxButtons.YesNo) == DialogResult.No) return;
+            closeWhenStopped = true;
+            lblStatus.Text = "Stopping…";
             cts.Cancel();
+            return;
         }
         SaveSettings(ReadSettings());
         tray.Visible = false;

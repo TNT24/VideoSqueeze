@@ -87,6 +87,12 @@ static class Theme
     }
 }
 
+/// <summary>A double-buffered ListView, so per-tick status updates don't flicker the rows.</summary>
+class SmoothList : ListView
+{
+    public SmoothList() => DoubleBuffered = true;
+}
+
 /// <summary>A rounded "card" panel.</summary>
 class Card : Panel
 {

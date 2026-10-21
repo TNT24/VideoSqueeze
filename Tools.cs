@@ -141,11 +141,15 @@ class MediaInfo
     public string PixFmt = "";
     public double Fps = 30;
     public string? Primaries, Transfer, Matrix, Range;
+    public string? FieldOrder;
     public long VideoBitrate;
     public List<(int Index, string Codec, long Bitrate)> Audio = new();
     public List<(int Index, string Codec)> Subtitles = new();
 
     public bool IsHdr => Transfer is "smpte2084" or "arib-std-b67";
+
+    /// <summary>The stream says it's interlaced (DVDs often do even when the picture is really progressive film).</summary>
+    public bool FlaggedInterlaced => FieldOrder is "tt" or "bb" or "tb" or "bt";
 
     /// <summary>Estimated bytes taken by audio (copied as-is to the output).</summary>
     public long AudioBytes => (long)(Audio.Sum(a => a.Bitrate) / 8.0 * Duration);
@@ -190,6 +194,7 @@ class MediaInfo
                     m.Transfer = Known(Str(s, "color_transfer"));
                     m.Matrix = Known(Str(s, "color_space"));
                     m.Range = Known(Str(s, "color_range"));
+                    m.FieldOrder = Str(s, "field_order");
                     m.VideoBitrate = bitrate;
                     if (m.Duration <= 0) m.Duration = Num(Str(s, "duration"));
                     break;

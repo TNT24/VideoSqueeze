@@ -70,6 +70,7 @@ class Squeezer
     readonly Settings s;
     readonly Action<string> log;
     readonly Action<string, double> progress;
+    string? vf; // deinterlace / field filter for the current file, see DecideScanAsync
 
     public Squeezer(Settings settings, Action<string> log, Action<string, double> progress)
     {
@@ -84,6 +85,7 @@ class Squeezer
         progress("Analyzing", 0);
         var m = await MediaInfo.ProbeAsync(src, ct);
         log($"▶ Estimating {Path.GetFileName(src)} — {m.Describe()}");
+        await DecideScanAsync(m, ct);
         var (q, vmaf, predicted) = await SearchQualityAsync(m, ct);
         var e = new Estimate(q, vmaf, predicted, m.Size);
         log($"  Estimate: {Format.Bytes(m.Size)} → ≈{Format.Bytes(predicted)} " +
@@ -101,6 +103,7 @@ class Squeezer
         bool ffv1 = s.Mode == Mode.Lossless && !X265LosslessPixFmts.Contains(m.PixFmt);
         string container = ffv1 ? "mkv" : s.Container;
         if (ffv1 && s.Container != "mkv") log("  Lossless FFV1 needs MKV; writing .mkv.");
+        await DecideScanAsync(m, ct);
 
         int quality = 0;
         if (s.Mode == Mode.Auto)
@@ -126,6 +129,7 @@ class Squeezer
         {
             var args = new List<string> { "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", src, "-map", $"0:{m.VideoIndex}" };
             args.AddRange(s.Mode == Mode.Lossless ? LosslessArgs(m, ffv1) : VideoArgs(m, quality, container));
+            if (vf != null) args.AddRange(new[] { "-vf", vf });
             args.AddRange(OtherStreamArgs(m, container));
             args.AddRange(new[] { "-map_metadata", "0", "-map_chapters", "0", "-max_muxing_queue_size", "4096" });
             // Sparse tracks (e.g. DVD subtitles that first appear minutes in) otherwise make the muxer write seconds of
@@ -179,6 +183,48 @@ class Squeezer
             log($"  ⚠ Warning: the video starts {firstVideo} packets into the file; some players may show a broken first few seconds.");
     }
 
+    static readonly Regex IdetCounts = new(@"Multi frame detection: TFF:\s*(\d+)\s+BFF:\s*(\d+)\s+Progressive:\s*(\d+)", RegexOptions.Compiled);
+
+    /// <summary>
+    /// AV1 can't signal interlacing (and x265 doesn't by default), so an interlaced source encoded as-is plays without
+    /// deinterlacing → combing on motion. Real interlaced video is deinterlaced to double rate (50/60 fps, keeps all
+    /// motion); film that is merely flagged interlaced (most PAL DVDs) stays at its frame rate, marked progressive.
+    /// </summary>
+    async Task DecideScanAsync(MediaInfo m, CancellationToken ct)
+    {
+        vf = null;
+        if (!m.FlaggedInterlaced || s.Mode == Mode.Lossless) return;
+        long interlaced = 0, total = 0;
+        var positions = m.Duration > 120 ? new[] { 0.25, 0.5, 0.75 }.Select(f => m.Duration * f).ToArray() : new[] { 0.0 };
+        for (int i = 0; i < positions.Length; i++)
+        {
+            progress($"Checking interlacing {i + 1}/{positions.Length}", (double)i / positions.Length);
+            var r = await Tools.FfmpegAsync(new[]
+            {
+                "-hide_banner", "-nostdin", "-ss", positions[i].ToString("0.###", CultureInfo.InvariantCulture), "-i", m.Path,
+                "-t", "20", "-map", $"0:{m.VideoIndex}", "-vf", "idet", "-an", "-sn", "-dn", "-f", "null", "-",
+            }, ct);
+            foreach (Match match in IdetCounts.Matches(r.Stderr))
+            {
+                long tff = long.Parse(match.Groups[1].Value), bff = long.Parse(match.Groups[2].Value), prog = long.Parse(match.Groups[3].Value);
+                interlaced += tff + bff;
+                total += tff + bff + prog;
+            }
+        }
+        // No verdict (unreadable samples): trust the flag.
+        if (total == 0 || interlaced > total * 0.1)
+        {
+            vf = "bwdif=mode=send_field";
+            m.Fps *= 2;
+            log($"  Interlaced video ({interlaced} of {total} frames) — deinterlacing to {m.Fps:0.##} fps (keeps all motion).");
+        }
+        else
+        {
+            vf = "setfield=prog";
+            log($"  Flagged interlaced but the picture is progressive ({total - interlaced} of {total} frames) — kept at {m.Fps:0.##} fps.");
+        }
+    }
+
     // ---------- automatic quality search ----------
 
     /// <summary>
@@ -216,7 +262,8 @@ class Squeezer
                     "-hide_banner", "-nostdin", "-y", "-loglevel", "error",
                     "-ss", starts[i].ToString("0.###", CultureInfo.InvariantCulture), "-i", m.Path,
                     "-t", len.ToString("0.###", CultureInfo.InvariantCulture), "-map", $"0:{m.VideoIndex}",
-                    "-vf", "setpts=PTS-STARTPTS", "-c:v", "ffv1", "-pix_fmt", CompareFormat, "-an", "-sn", "-dn", refPath,
+                    // Same deinterlacing as the real encode, so VMAF compares like with like.
+                    "-vf", (vf != null ? vf + "," : "") + "setpts=PTS-STARTPTS", "-c:v", "ffv1", "-pix_fmt", CompareFormat, "-an", "-sn", "-dn", refPath,
                 }, ct);
                 refs.Add(refPath);
             }
@@ -284,15 +331,16 @@ class Squeezer
     static readonly Regex VmafScore = new(@"VMAF score[:=]\s*([0-9.]+)", RegexOptions.Compiled);
 
     /// <param name="start">Optional: measure only <paramref name="length"/> seconds from this point of both files.</param>
+    /// <param name="refFilter">Optional filter for the reference, e.g. the deinterlacer the encode used.</param>
     internal static async Task<double> VmafAsync(string distorted, string reference, bool uhd, CancellationToken ct,
-        double? start = null, double length = 1)
+        double? start = null, double length = 1, string? refFilter = null)
     {
         // The 4K model is calibrated for UHD viewing; the default model is for 1080p.
         string model = uhd ? "vmaf_4k_v0.6.1" : "vmaf_v0.6.1";
         // Pair frames by index, not timestamp: container timestamp rounding can otherwise shift one input by a frame,
         // which makes VMAF compare neighbouring frames and wildly under-report quality.
         string graph = $"[0:v]format={CompareFormat},settb=AVTB,setpts=N[d];" +
-                       $"[1:v]format={CompareFormat},settb=AVTB,setpts=N[r];" +
+                       $"[1:v]{(refFilter != null ? refFilter + "," : "")}format={CompareFormat},settb=AVTB,setpts=N[r];" +
                        $"[d][r]libvmaf=model=version={model}:n_threads={Environment.ProcessorCount}";
         var window = start is double s
             ? new[] { "-ss", s.ToString("0.###", CultureInfo.InvariantCulture), "-t", length.ToString("0.###", CultureInfo.InvariantCulture) }

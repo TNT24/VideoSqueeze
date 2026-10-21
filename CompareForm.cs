@@ -125,7 +125,9 @@ class CompareForm : Form
             view.SetImages(a.Result, b.Result);
 
             lblQuality.Text = "Measuring quality…";
-            double vmaf = await Task.Run(() => Squeezer.VmafAsync(compressed, original, origInfo.Height > 1440, ct, t, 1), ct);
+            // A double-rate output was deinterlaced from the original: do the same to the original so frames pair up.
+            string? refFilter = origInfo.FlaggedInterlaced && compInfo.Fps > origInfo.Fps * 1.5 ? "bwdif=mode=send_field" : null;
+            double vmaf = await Task.Run(() => Squeezer.VmafAsync(compressed, original, origInfo.Height > 1440, ct, t, 1, refFilter), ct);
             (lblQuality.ForeColor, string verdict) = vmaf switch
             {
                 >= 93 => (Theme.Success, "looks identical"),
