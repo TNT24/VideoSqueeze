@@ -32,6 +32,7 @@ public class Settings
     public string OutputFolder { get; set; } = "";
     public bool DiscardIfLarger { get; set; } = true;
     public bool NotifyWhenDone { get; set; } = true;
+    public bool CompareWhenDone { get; set; }
 
     /// <summary>(best quality, worst quality, sensible default) for the codec's CRF/CQ scale.</summary>
     public static (int Min, int Max, int Default) QualityRange(Codec c) => c switch

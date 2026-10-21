@@ -208,3 +208,44 @@ class ModernCombo : ComboBox
             TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
     }
 }
+
+/// <summary>Check box that keeps theme colours when disabled (Windows draws disabled text near-black on dark backgrounds).</summary>
+class ModernCheck : CheckBox
+{
+    public ModernCheck()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        ForeColor = Theme.Text;
+    }
+
+    protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Invalidate(); }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.Clear(Parent?.BackColor ?? Theme.Card);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        int size = (int)Math.Round(14 * DeviceDpi / 96f);
+        var box = new RectangleF(0.5f, (Height - size) / 2f, size, size);
+        Color accent = Enabled ? Theme.Accent : Theme.Border;
+        using (var p = Theme.Rounded(box, size / 4f))
+        {
+            if (Checked) { using var b = new SolidBrush(accent); g.FillPath(b, p); }
+            else { using var b = new SolidBrush(Theme.CardAlt); g.FillPath(b, p); using var pen = new Pen(Enabled ? Theme.SubtleText : Theme.Border); g.DrawPath(pen, p); }
+        }
+        if (Checked)
+        {
+            using var pen = new Pen(Enabled ? Color.White : Theme.SubtleText, size / 7f) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
+            g.DrawLines(pen, new[]
+            {
+                new PointF(box.Left + size * 0.24f, box.Top + size * 0.52f),
+                new PointF(box.Left + size * 0.43f, box.Top + size * 0.70f),
+                new PointF(box.Left + size * 0.76f, box.Top + size * 0.32f),
+            });
+        }
+        var text = new Rectangle((int)box.Right + size / 2, 0, Width - (int)box.Right - size / 2, Height);
+        TextRenderer.DrawText(g, Text, Font, text, Enabled ? ForeColor : Theme.SubtleText,
+            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.SingleLine);
+        if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(g, text);
+    }
+}

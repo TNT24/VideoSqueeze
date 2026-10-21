@@ -32,8 +32,9 @@ public class MainForm : Form
     readonly NumericUpDown numVmaf = new() { Minimum = 85, Maximum = 99, DecimalPlaces = 1, Increment = 0.5m, Width = 80 };
     readonly NumericUpDown numQuality = new() { Width = 80 };
     readonly TextBox txtOut = new() { PlaceholderText = "Same folder as the original" };
-    readonly CheckBox chkDiscard = new() { Text = "Skip videos that wouldn't get smaller", AutoSize = true };
-    readonly CheckBox chkNotify = new() { Text = "Alert me when finished", AutoSize = true, Checked = true };
+    readonly ModernCheck chkDiscard = new() { Text = "Skip videos that wouldn't get smaller", AutoSize = true };
+    readonly ModernCheck chkNotify = new() { Text = "Alert me when finished", AutoSize = true, Checked = true };
+    readonly ModernCheck chkCompare = new() { Text = "Compare when finished", AutoSize = true };
     readonly NotifyIcon tray = new();
     readonly ModernButton btnEstimate = new("Estimate savings");
     readonly ModernButton btnStart = new("Start", primary: true);
@@ -131,12 +132,13 @@ public class MainForm : Form
 
         // ----- preset card -----
         var presetCard = new Card { Dock = DockStyle.Fill };
-        var presetGrid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 2, BackColor = Theme.Card };
+        var presetGrid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3, BackColor = Theme.Card };
         presetGrid.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         presetGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, S(380)));
         presetGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        presetGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
-        presetGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        presetGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 33));
+        presetGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 33));
+        presetGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 34));
         cbPreset.Dock = DockStyle.Fill;
         cbPreset.Font = Theme.Body(10.5f, FontStyle.Bold);
         cbPreset.Anchor = AnchorStyles.Left | AnchorStyles.Right;
@@ -153,15 +155,17 @@ public class MainForm : Form
         outPanel.Controls.Add(browse, 1, 0);
         presetGrid.Controls.Add(Caption("SAVE TO"), 0, 1);
         presetGrid.Controls.Add(outPanel, 1, 1);
-        var checks = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Left, BackColor = Theme.Card, Margin = new Padding(S(14), 0, 0, 0) };
-        foreach (var c in new[] { chkDiscard, chkNotify })
+        var checks = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Left, BackColor = Theme.Card, Margin = Padding.Empty };
+        foreach (var c in new[] { chkDiscard, chkNotify, chkCompare })
         {
             c.ForeColor = Theme.Text;
             c.Margin = new Padding(0, 3, S(18), 3);
             checks.Controls.Add(c);
         }
-        presetGrid.Controls.Add(checks, 2, 1);
-        tips.SetToolTip(chkNotify, "Plays a sound, shows a Windows notification and flashes the taskbar button when a run finishes.");
+        presetGrid.Controls.Add(checks, 1, 2);
+        presetGrid.SetColumnSpan(checks, 2);
+        tips.SetToolTip(chkCompare, "When a run finishes, opens the side-by-side comparison for the last video it compressed.");
+        tips.SetToolTip(chkNotify,"Plays a sound, shows a Windows notification and flashes the taskbar button when a run finishes.");
         tray.Icon = Icon;
         tray.Text = "VideoSqueeze";
         tray.BalloonTipClicked += (_, _) => BringToFrontNow();
@@ -230,7 +234,7 @@ public class MainForm : Form
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 62));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(112)));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(150)));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(150)));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(84)));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 38));
@@ -450,6 +454,7 @@ public class MainForm : Form
         OutputFolder = txtOut.Text.Trim(),
         DiscardIfLarger = chkDiscard.Checked,
         NotifyWhenDone = chkNotify.Checked,
+        CompareWhenDone = chkCompare.Checked,
     };
 
     void LoadSettings()
@@ -467,6 +472,7 @@ public class MainForm : Form
         txtOut.Text = s.OutputFolder;
         chkDiscard.Checked = s.DiscardIfLarger;
         chkNotify.Checked = s.NotifyWhenDone;
+        chkCompare.Checked = s.CompareWhenDone;
         cbPreset.SelectedIndex = Math.Clamp(s.Preset, 0, Settings.Presets.Length);
         loading = false;
         OnPresetChanged();
@@ -642,6 +648,7 @@ public class MainForm : Form
         SetRunning(true);
         KeepAwake(true);
         long before = 0, after = 0;
+        string? lastCompressed = null;
         int n = 0, failed = 0;
         bool stopped = false;
         try
@@ -681,7 +688,7 @@ public class MainForm : Form
                         item.SubItems[2].Text = r.Status;
                         if (r.Saved)
                         {
-                            if (r.OutputPath != null) outputs[path] = r.OutputPath;
+                            if (r.OutputPath != null) { outputs[path] = r.OutputPath; lastCompressed = path; }
                             item.SubItems[4].Text = Format.Bytes(r.OutputSize);
                             before += new FileInfo(path).Length;
                             after += r.OutputSize;
@@ -734,6 +741,8 @@ public class MainForm : Form
             string title = estimateOnly ? "Estimate finished" : failed > 0 ? $"Finished — {failed} video(s) failed" : "Compression finished";
             Alert(title, lblStatus.Text.Replace("  ·  ", " — "), failed > 0);
         }
+        if (!stopped && chkCompare.Checked && lastCompressed != null && outputs.TryGetValue(lastCompressed, out var compressed))
+            new CompareForm(lastCompressed, compressed).Show(this); // modeless: the list stays usable
     }
 
     // ---------- completion alert ----------
