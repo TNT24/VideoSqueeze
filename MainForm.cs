@@ -122,6 +122,7 @@ public class MainForm : Form
         list.MouseClick += (_, e) => { if (RetryHit(e.Location) is { } item) Retry(item); };
         list.MouseMove += (_, e) => list.Cursor = RetryHit(e.Location) != null ? Cursors.Hand : Cursors.Default;
         Theme.StyleNative(list);
+        list.HandleCreated += (_, _) => headerFiller.AssignHandle(SendMessage(list.Handle, LVM_GETHEADER, IntPtr.Zero, IntPtr.Zero));
         Theme.StyleNative(txtLog);
         var listCard = new Card { Dock = DockStyle.Fill, Padding = new Padding(S(6)) };
         listCard.Controls.Add(list);
@@ -273,6 +274,35 @@ public class MainForm : Form
         for (int i = 1; i < list.Columns.Count; i++) others += list.Columns[i].Width;
         int scrollbar = SystemInformation.VerticalScrollBarWidth + 2;
         list.Columns[0].Width = Math.Max(S(160), list.ClientSize.Width - others - scrollbar);
+    }
+
+    const int LVM_GETHEADER = 0x101F;
+    [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+    readonly HeaderFiller headerFiller = new();
+
+    /// <summary>Owner-draw only paints the columns; Windows fills the header past the last column in white. Paint it to match.</summary>
+    sealed class HeaderFiller : NativeWindow
+    {
+        const int WM_PAINT = 0x000F;
+        const int HDM_GETITEMCOUNT = 0x1200, HDM_GETITEMRECT = 0x1207;
+        [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
+        [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, ref RECT lParam);
+        [DllImport("user32.dll")] static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg != WM_PAINT) return;
+            int count = (int)MainForm.SendMessage(Handle, HDM_GETITEMCOUNT, IntPtr.Zero, IntPtr.Zero);
+            var last = new RECT();
+            if (count > 0) SendMessage(Handle, HDM_GETITEMRECT, count - 1, ref last);
+            GetClientRect(Handle, out var client);
+            if (last.Right >= client.Right) return;
+            using var g = Graphics.FromHwnd(Handle);
+            using (var b = new SolidBrush(Theme.Card)) g.FillRectangle(b, last.Right, 0, client.Right - last.Right, client.Bottom);
+            using var p = new Pen(Theme.Border);
+            g.DrawLine(p, last.Right, client.Bottom - 1, client.Right, client.Bottom - 1);
+        }
     }
 
     void DrawHeader(object? sender, DrawListViewColumnHeaderEventArgs e)
