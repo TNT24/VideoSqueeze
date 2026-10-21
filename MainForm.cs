@@ -50,6 +50,8 @@ public class MainForm : Form
     readonly ToolTip tips = new() { AutoPopDelay = 20000 };
 
     CancellationTokenSource? cts;
+    List<ListViewItem>? queue; // the running batch; Retry appends to it
+    bool lastRunEstimate;
     bool loading;
 
     int S(int px) => (int)Math.Round(px * DeviceDpi / 96f);
@@ -109,13 +111,15 @@ public class MainForm : Form
         list.DrawColumnHeader += DrawHeader;
         list.DrawItem += (_, e) => e.DrawDefault = false;
         list.DrawSubItem += DrawCell;
-        list.Resize += (_, _) => FitColumns();
+        list.Resize += (_, _) => { if (list.ClientSize.Width > 0 && list.ClientSize.Height > 0) FitColumns(); };
         list.DragEnter += OnDragEnter;
         list.DragDrop += OnDragDrop;
         lblEmpty.DragEnter += OnDragEnter;
         lblEmpty.DragDrop += OnDragDrop;
         list.KeyDown += (_, e) => { if (e.KeyCode == Keys.Delete) RemoveSelected(); };
         list.DoubleClick += (_, _) => CompareSelected();
+        list.MouseClick += (_, e) => { if (RetryHit(e.Location) is { } item) Retry(item); };
+        list.MouseMove += (_, e) => list.Cursor = RetryHit(e.Location) != null ? Cursors.Hand : Cursors.Default;
         Theme.StyleNative(list);
         Theme.StyleNative(txtLog);
         var listCard = new Card { Dock = DockStyle.Fill, Padding = new Padding(S(6)) };
@@ -304,8 +308,52 @@ public class MainForm : Form
         else if (e.ColumnIndex is 1 or 4) color = Theme.SubtleText;
 
         var r = Rectangle.Inflate(e.Bounds, -S(8), 0);
+        if (e.ColumnIndex == 2 && IsFailed(e.Item))
+        {
+            var pill = RetryRect(e.Bounds);
+            r.Width = pill.Left - r.Left - S(6);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using (var path = Theme.Rounded(pill, pill.Height / 2f))
+            using (var b = new SolidBrush(Theme.Accent))
+                e.Graphics.FillPath(b, path);
+            using var pf = Theme.Body(8.25f, FontStyle.Bold);
+            TextRenderer.DrawText(e.Graphics, "↻ Retry", pf, pill, Color.White,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+        }
         var align = list.Columns[e.ColumnIndex].TextAlign == HorizontalAlignment.Right ? TextFormatFlags.Right : TextFormatFlags.Left;
         TextRenderer.DrawText(e.Graphics, text, font, r, color, align | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+    }
+
+    // ---------- retry ----------
+
+    static bool IsFailed(ListViewItem item) => item.SubItems[2].Text.StartsWith("Failed");
+
+    Rectangle RetryRect(Rectangle cell)
+    {
+        int w = S(64), h = S(22);
+        return new Rectangle(cell.Right - S(8) - w, cell.Top + (cell.Height - h) / 2, w, h);
+    }
+
+    ListViewItem? RetryHit(Point p)
+    {
+        var hit = list.HitTest(p);
+        if (hit.Item == null || hit.SubItem == null || !IsFailed(hit.Item)) return null;
+        if (hit.Item.SubItems.IndexOf(hit.SubItem) != 2) return null;
+        return RetryRect(hit.SubItem.Bounds).Contains(p) ? hit.Item : null;
+    }
+
+    /// <summary>Re-runs one failed file: straight away when idle, or at the end of the batch that's running.</summary>
+    async void Retry(ListViewItem item)
+    {
+        item.SubItems[2].Text = "Queued";
+        if (queue != null)
+        {
+            queue.Add(item); // it already failed this run, so it's behind the current position
+            Log($"Retry: {item.Text} added to the end of the queue.");
+            return;
+        }
+        Log($"Retrying {item.Text}…");
+        await StartAsync(lastRunEstimate, new[] { item });
     }
 
     void UpdateEmptyState() => lblEmpty.Visible = list.Items.Count == 0;
@@ -530,7 +578,7 @@ public class MainForm : Form
     /// <summary>Estimates are only reusable for the same quality-affecting settings.</summary>
     static string EstimateKey(Settings s) => $"{s.Mode}|{s.Codec}|{s.Speed}|{s.TargetVmaf}";
 
-    async Task StartAsync(bool estimateOnly)
+    async Task StartAsync(bool estimateOnly, IList<ListViewItem>? only = null)
     {
         var settings = ReadSettings();
         if (estimateOnly && settings.Mode != Mode.Auto)
@@ -539,7 +587,7 @@ public class MainForm : Form
             return;
         }
         string key = EstimateKey(settings);
-        var pending = list.Items.Cast<ListViewItem>().Where(i =>
+        var pending = (only ?? list.Items.Cast<ListViewItem>().ToList()).Where(i =>
         {
             var status = i.SubItems[2].Text;
             if (status.StartsWith("Done") || status.StartsWith("Skipped")) return false;
@@ -558,6 +606,8 @@ public class MainForm : Form
         SaveSettings(settings);
 
         cts = new CancellationTokenSource();
+        queue = pending;
+        lastRunEstimate = estimateOnly;
         SetRunning(true);
         KeepAwake(true);
         long before = 0, after = 0;
@@ -565,8 +615,10 @@ public class MainForm : Form
         bool stopped = false;
         try
         {
-            foreach (var item in pending)
+            for (int qi = 0; qi < pending.Count; qi++) // index loop: Retry can append while running
             {
+                var item = pending[qi];
+                if (!list.Items.Contains(item)) continue;
                 n++;
                 string path = (string)item.Tag!;
                 item.SubItems[2].Text = "Working…";
@@ -625,6 +677,7 @@ public class MainForm : Form
             KeepAwake(false);
             cts.Dispose();
             cts = null;
+            queue = null;
             SetRunning(false);
         }
         bar.Value = 0;
@@ -723,6 +776,30 @@ public class MainForm : Form
     void Log(string msg)
     {
         txtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {msg}\r\n");
+    }
+
+    // Alt-tabbing into a fullscreen game minimizes/shrinks the window (and may change the resolution). The ListView
+    // then keeps a stale scroll offset and skips repainting, so rows vanish or start partway down. Re-anchor on return.
+    protected override void OnActivated(EventArgs e)
+    {
+        base.OnActivated(e);
+        RepairList();
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        if (WindowState != FormWindowState.Minimized) RepairList();
+    }
+
+    void RepairList()
+    {
+        if (list.Items.Count == 0 || list.ClientSize.Height <= 0) return;
+        int top = list.TopItem?.Index ?? 0;
+        list.EnsureVisible(0);
+        if (top > 0) list.EnsureVisible(Math.Min(top + list.ClientSize.Height / list.GetItemRect(0).Height - 1, list.Items.Count - 1));
+        FitColumns();
+        list.Invalidate();
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
