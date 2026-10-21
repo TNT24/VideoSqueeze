@@ -56,8 +56,9 @@ public class MainForm : Form
 
     int S(int px) => (int)Math.Round(px * DeviceDpi / 96f);
 
-    public MainForm()
+    public MainForm(string[]? startupPaths = null)
     {
+        if (startupPaths is { Length: > 0 }) Shown += (_, _) => OpenPaths(startupPaths.Select(Path.GetFullPath));
         Text = "VideoSqueeze";
         Font = Theme.Body();
         BackColor = Theme.Window;
@@ -741,6 +742,15 @@ public class MainForm : Form
             };
             FlashWindowEx(ref info);
         }
+    }
+
+    /// <summary>Paths passed by Explorer's "Squeeze with VideoSqueeze" (also from a second launch).</summary>
+    public void OpenPaths(IEnumerable<string> paths)
+    {
+        var existing = paths.Where(p => File.Exists(p) || Directory.Exists(p)).ToList();
+        if (existing.Count == 0) return;
+        AddPaths(existing);
+        BringToFrontNow();
     }
 
     void BringToFrontNow()

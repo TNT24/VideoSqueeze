@@ -38,5 +38,72 @@ Source: "build\VideoSqueeze.exe"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\VideoSqueeze.exe"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\VideoSqueeze.exe"; Tasks: desktopicon
 
+[Registry]
+; Explorer right-click "Squeeze with VideoSqueeze" (Windows 11: under "Show more options"). Keep in sync with MainForm.VideoExtensions.
+Root: HKA; Subkey: "Software\Classes\Directory\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Directory\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\Directory\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\Directory\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mp4\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mkv\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mov\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.avi\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.m4v\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.m4v\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.m4v\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.m4v\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.webm\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.wmv\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.wmv\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.wmv\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.wmv\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.flv\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.flv\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.flv\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.flv\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.ts\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.ts\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.ts\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.ts\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.m2ts\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.m2ts\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.m2ts\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.m2ts\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mts\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mts\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mts\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mts\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mpg\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mpg\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mpg\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mpg\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mpeg\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mpeg\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mpeg\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mpeg\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mxf\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mxf\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mxf\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.mxf\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.3gp\shell\VideoSqueeze"; ValueType: string; ValueName: "MUIVerb"; ValueData: "Squeeze with VideoSqueeze"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.3gp\shell\VideoSqueeze"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\VideoSqueeze.exe"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.3gp\shell\VideoSqueeze"; ValueType: string; ValueName: "MultiSelectModel"; ValueData: "Player"
+Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.3gp\shell\VideoSqueeze\command"; ValueType: string; ValueName: ""; ValueData: """{app}\VideoSqueeze.exe"" ""%1""""
+
 [Run]
 Filename: "{app}\VideoSqueeze.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
