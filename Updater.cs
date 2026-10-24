@@ -10,9 +10,10 @@ public record Update(Version Version, string InstallerUrl, long Size, string? Sh
 static class Updater
 {
     const string LatestRelease = "https://api.github.com/repos/TNT24/VideoSqueeze/releases/latest";
-    static readonly HttpClient http = CreateClient();
 
+    // Must stay above `http`: static fields are initialized top to bottom, and CreateClient reads Current.
     public static Version Current { get; } = Normalize(typeof(Updater).Assembly.GetName().Version ?? new Version(0, 0));
+    static readonly HttpClient http = CreateClient();
 
     static HttpClient CreateClient()
     {

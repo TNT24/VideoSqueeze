@@ -810,7 +810,12 @@ public class MainForm : Form
     {
         if (update != null) return; // already offered (or downloading)
         try { update = await Updater.CheckAsync(default); }
-        catch { return; } // offline or GitHub unreachable: try again at the next check
+        catch (Exception ex)
+        {
+            // Usually offline or GitHub unreachable: try again at the next check. Logged so a real fault isn't invisible.
+            Log($"Couldn't check for updates ({ex.GetBaseException().Message}).");
+            return;
+        }
         if (update == null) return;
         Log($"VideoSqueeze {update.Version} is available (you have {Updater.Current}).");
         lblUpdate.Text = $"VideoSqueeze {update.Version} is available — you have {Updater.Current}.";

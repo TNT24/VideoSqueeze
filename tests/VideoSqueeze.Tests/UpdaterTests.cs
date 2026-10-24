@@ -46,4 +46,16 @@ public class UpdaterTests
         Assert.NotNull(u);
         Assert.Null(u.Sha256);
     }
+
+    [Fact]
+    public void Updater_StartsUp()
+    {
+        // Parse alone never sets up the HTTP client; 1.5.0/1.5.1 shipped with a client that failed to initialize
+        // (empty version in its User-Agent), so every update check failed silently.
+        var current = Updater.Current;
+        var check = Updater.CheckAsync(new CancellationToken(canceled: true));
+        Assert.True(check.IsCanceled || check.IsFaulted && check.Exception!.GetBaseException() is OperationCanceledException,
+            check.Exception?.GetBaseException().ToString());
+        Assert.NotEqual(new Version(0, 0, 0), current);
+    }
 }
