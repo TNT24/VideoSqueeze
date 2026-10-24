@@ -22,6 +22,8 @@ if (-not $iscc) { throw "Inno Setup not found. Install it with: winget install J
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
 
 if ($Publish) {
+    # git and gh report progress on stderr, which Windows PowerShell would treat as an error; check exit codes instead.
+    $ErrorActionPreference = 'Continue'
     if (git status --porcelain) { throw "Commit your changes before publishing." }
     git push
     if ($LASTEXITCODE -ne 0) { throw "git push failed" }
