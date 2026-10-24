@@ -90,7 +90,42 @@ static class Theme
 /// <summary>A double-buffered ListView, so per-tick status updates don't flicker the rows.</summary>
 class SmoothList : ListView
 {
+    const int WM_PAINT = 0x000F, WM_PRINTCLIENT = 0x0318;
+
     public SmoothList() => DoubleBuffered = true;
+
+    // The dark Explorer theme paints its own column dividers below the last row, 1–2 px off the ones the owner-drawn
+    // cells draw, plus one after the last column. Repaint that empty area with dividers that line up with the rows.
+    protected override void WndProc(ref Message m)
+    {
+        base.WndProc(ref m);
+        if (m.Msg == WM_PAINT)
+        {
+            using var g = CreateGraphics();
+            PaintBelowRows(g);
+        }
+        else if (m.Msg == WM_PRINTCLIENT) // DrawToBitmap
+        {
+            using var g = Graphics.FromHdc(m.WParam);
+            PaintBelowRows(g);
+        }
+    }
+
+    void PaintBelowRows(Graphics g)
+    {
+        if (View != View.Details || Items.Count == 0) return;
+        int top = GetItemRect(Items.Count - 1).Bottom;
+        if (top >= ClientSize.Height) return;
+        using (var b = new SolidBrush(BackColor)) g.FillRectangle(b, 0, top, ClientSize.Width, ClientSize.Height - top);
+        using var p = new Pen(Theme.Border);
+        var first = Items[0].SubItems;
+        for (int i = 0; i < first.Count - 1; i++) // same x as the cells' right border (Right - 1); none after the last column
+        {
+            int x = first[i].Bounds.Right - 1;
+            if (i == 0) x = first[1].Bounds.Left - 1; // sub-item 0's bounds span the whole row
+            g.DrawLine(p, x, top, x, ClientSize.Height);
+        }
+    }
 }
 
 /// <summary>A rounded "card" panel.</summary>
