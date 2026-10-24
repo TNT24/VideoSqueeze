@@ -54,7 +54,13 @@ public class MainForm : Form
     readonly ModernButton btnUpdate = new("Update", primary: true);
     readonly ModernButton btnUpdateLater = new("Later");
     readonly System.Windows.Forms.Timer updateTimer = new() { Interval = 6 * 60 * 60 * 1000 };
+    readonly LinkLabel lnkCheckUpdates = new()
+    {
+        Text = "Check for updates", AutoSize = true, Margin = Padding.Empty, LinkBehavior = LinkBehavior.HoverUnderline,
+        LinkColor = Theme.Accent, ActiveLinkColor = Theme.AccentPressed, VisitedLinkColor = Theme.Accent, DisabledLinkColor = Theme.SubtleText,
+    };
     Update? update;
+    bool checkingUpdate;
     string? updateInstaller; // downloaded, waiting for the current run to finish
 
     CancellationTokenSource? cts;
@@ -234,9 +240,17 @@ public class MainForm : Form
         var logCard = new Card { Dock = DockStyle.Fill, Margin = Padding.Empty };
         logCard.Controls.Add(txtLog);
         var logTitle = Caption("ACTIVITY");
-        logTitle.Dock = DockStyle.Top;
-        logTitle.Height = S(24);
-        logCard.Controls.Add(logTitle);
+        logTitle.Dock = DockStyle.Left;
+        // Version and update link at the right of the title bar (the header has no room left at the minimum width).
+        var versionBar = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, WrapContents = false, BackColor = Theme.Card, Margin = Padding.Empty };
+        versionBar.Controls.Add(new Label { Text = $"v{Updater.Current}  ·", AutoSize = true, ForeColor = Theme.SubtleText, Margin = Padding.Empty });
+        lnkCheckUpdates.Margin = Padding.Empty;
+        lnkCheckUpdates.Click += async (_, _) => await CheckForUpdateAsync(manual: true);
+        versionBar.Controls.Add(lnkCheckUpdates);
+        var logHeader = new Panel { Dock = DockStyle.Top, Height = S(24), BackColor = Theme.Card };
+        logHeader.Controls.Add(versionBar);
+        logHeader.Controls.Add(logTitle);
+        logCard.Controls.Add(logHeader);
 
         // ----- update bar (hidden until a newer release is found) -----
         var updateRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, BackColor = Theme.Selection };
@@ -806,15 +820,45 @@ public class MainForm : Form
 
     // ---------- updates ----------
 
-    async Task CheckForUpdateAsync()
+    /// <param name="manual">From the "Check for updates" link: report every outcome, and re-show a bar hidden with Later.</param>
+    async Task CheckForUpdateAsync(bool manual = false)
     {
-        if (update != null) return; // already offered (or downloading)
-        try { update = await Updater.CheckAsync(default); }
+        if (update != null) // already offered (or downloading)
+        {
+            if (manual) ShowUpdateBar(true);
+            return;
+        }
+        if (checkingUpdate) return;
+        checkingUpdate = true;
+        // Only a manual check changes the link; the automatic ones stay invisible unless they find something.
+        if (manual)
+        {
+            lnkCheckUpdates.Enabled = false;
+            lnkCheckUpdates.Text = "Checking…";
+        }
+        string result;
+        try
+        {
+            update = await Updater.CheckAsync(default);
+            result = update != null ? "Check for updates" : "Up to date";
+            if (manual && update == null) Log($"Checked for updates: {Updater.Current} is the latest version.");
+        }
         catch (Exception ex)
         {
             // Usually offline or GitHub unreachable: try again at the next check. Logged so a real fault isn't invisible.
             Log($"Couldn't check for updates ({ex.GetBaseException().Message}).");
-            return;
+            result = "Couldn't check — see Activity log";
+        }
+        finally { checkingUpdate = false; }
+        if (manual)
+        {
+            lnkCheckUpdates.Text = result;
+            lnkCheckUpdates.Enabled = true;
+            if (update == null)
+            {
+                await Task.Delay(5000); // then put the link back
+                if (lnkCheckUpdates.Text == result) lnkCheckUpdates.Text = "Check for updates";
+            }
         }
         if (update == null) return;
         Log($"VideoSqueeze {update.Version} is available (you have {Updater.Current}).");
