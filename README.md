@@ -59,3 +59,7 @@ Publishes a self-contained exe to `build\` and packages it with [Inno Setup](htt
 Tests: `dotnet test tests/VideoSqueeze.Tests` (encodes small generated clips; needs FFmpeg).
 
 Set `VIDEOSQUEEZE_DEBUG=1` to print every ffmpeg command to the console.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
