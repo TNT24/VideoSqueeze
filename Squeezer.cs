@@ -151,6 +151,7 @@ class Squeezer
             });
 
             await CheckVideoStartsFirstAsync(partPath, ct);
+            await VerifyOutputAsync(m, partPath, container, ct);
             long outSize = new FileInfo(partPath).Length;
             if (s.DiscardIfLarger && outSize >= m.Size)
             {
@@ -181,6 +182,40 @@ class Squeezer
         int firstVideo = Array.FindIndex(lines, l => l.StartsWith("0"));
         if (firstVideo > 40)
             log($"  ⚠ Warning: the video starts {firstVideo} packets into the file; some players may show a broken first few seconds.");
+    }
+
+    /// <summary>Compares the finished file with the original; throws (so it's discarded and marked Failed) if anything is missing.</summary>
+    async Task VerifyOutputAsync(MediaInfo src, string file, string container, CancellationToken ct)
+    {
+        progress("Checking the result", 1);
+        var problem = OutputProblem(src, await MediaInfo.ProbeAsync(file, ct), container);
+        if (problem == null && src.IsHdr)
+        {
+            // Recent FFmpeg carries HDR10 brightness info through every encoder; older builds drop it, and HDR TVs then
+            // tone-map the picture wrongly.
+            var missing = (await MediaInfo.HdrSideDataAsync(src.Path, ct)).Except(await MediaInfo.HdrSideDataAsync(file, ct)).ToList();
+            if (missing.Count > 0) problem = $"the HDR info ({string.Join(", ", missing).ToLowerInvariant()}) was lost — update FFmpeg";
+        }
+        if (problem != null) throw new Exception($"Output check failed: {problem}. The compressed file was discarded.");
+        log("  Output checked: length and tracks match the original.");
+    }
+
+    /// <summary>Why the output doesn't match the original (length, tracks), or null if it does.</summary>
+    internal static string? OutputProblem(MediaInfo src, MediaInfo output, string container)
+    {
+        static string Clock(double s) => TimeSpan.FromSeconds(s).ToString(@"h\:mm\:ss");
+        double tolerance = Math.Max(2, src.Duration * 0.002);
+        if (src.Duration > 0 && Math.Abs(output.Duration - src.Duration) > tolerance)
+            return $"it is {Clock(output.Duration)} long but the original is {Clock(src.Duration)}";
+        if (src.VideoDuration > 0 && output.VideoDuration > 0 && output.VideoDuration < src.VideoDuration - tolerance)
+            return $"the picture stops at {Clock(output.VideoDuration)} but the original runs to {Clock(src.VideoDuration)}";
+        if (output.Audio.Count != src.Audio.Count)
+            return $"it has {output.Audio.Count} audio track(s), the original has {src.Audio.Count}";
+        // MP4 can only hold text subtitles; the others are left out on purpose (and logged).
+        int subs = container == "mp4" ? src.Subtitles.Count(x => TextSubs.Contains(x.Codec)) : src.Subtitles.Count;
+        if (output.Subtitles.Count != subs)
+            return $"it has {output.Subtitles.Count} subtitle track(s), expected {subs}";
+        return null;
     }
 
     static readonly Regex IdetCounts = new(@"Multi frame detection: TFF:\s*(\d+)\s+BFF:\s*(\d+)\s+Progressive:\s*(\d+)", RegexOptions.Compiled);

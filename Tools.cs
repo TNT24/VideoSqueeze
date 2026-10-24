@@ -135,6 +135,7 @@ class MediaInfo
     public string Path = "";
     public long Size;
     public double Duration;
+    public double VideoDuration; // the video track alone; 0 if the file doesn't say
     public int VideoIndex = -1;
     public string VideoCodec = "";
     public int Width, Height;
@@ -196,7 +197,10 @@ class MediaInfo
                     m.Range = Known(Str(s, "color_range"));
                     m.FieldOrder = Str(s, "field_order");
                     m.VideoBitrate = bitrate;
-                    if (m.Duration <= 0) m.Duration = Num(Str(s, "duration"));
+                    m.VideoDuration = Num(Str(s, "duration"));
+                    // MKV keeps per-track lengths in a tag ("01:23:45.678000000").
+                    if (m.VideoDuration <= 0 && s.TryGetProperty("tags", out var vt)) m.VideoDuration = Clock(Str(vt, "DURATION") ?? Str(vt, "DURATION-eng"));
+                    if (m.Duration <= 0) m.Duration = m.VideoDuration;
                     break;
                 case "audio":
                     m.Audio.Add((index, codec, bitrate));
@@ -221,6 +225,26 @@ class MediaInfo
         if (s == null) return 0;
         var parts = s.Split('/');
         return parts.Length == 2 && Num(parts[1]) > 0 ? Num(parts[0]) / Num(parts[1]) : Num(s);
+    }
+
+    static double Clock(string? s)
+    {
+        if (s == null) return 0;
+        int dot = s.IndexOf('.');
+        if (dot >= 0 && s.Length - dot > 8) s = s[..(dot + 8)]; // TimeSpan takes at most 7 fractional digits
+        return TimeSpan.TryParse(s, CultureInfo.InvariantCulture, out var t) ? t.TotalSeconds : 0;
+    }
+
+    /// <summary>Which HDR10 side data a file carries (mastering display, content light level), from the stream or first frame.</summary>
+    public static async Task<HashSet<string>> HdrSideDataAsync(string file, CancellationToken ct)
+    {
+        var r = await Tools.RunAsync(Tools.Ffprobe, new[]
+        {
+            "-v", "error", "-select_streams", "v:0", "-read_intervals", "%+#1",
+            "-show_entries", "stream_side_data=side_data_type:frame_side_data=side_data_type", "-of", "csv=p=0", file,
+        }, ct, collectStdout: true);
+        return r.Stdout.Split(new[] { '\n', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(t => t is "Mastering display metadata" or "Content light level metadata").ToHashSet();
     }
 
     static string? Known(string? s) => string.IsNullOrEmpty(s) || s is "unknown" or "reserved" ? null : s;

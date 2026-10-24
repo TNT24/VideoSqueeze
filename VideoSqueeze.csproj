@@ -13,6 +13,8 @@
     <Version>1.4.0</Version>
     <Product>VideoSqueeze</Product>
     <Description>Shrink videos without visible quality loss</Description>
+    <!-- The test project has its own .csproj; keep its sources out of the app. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <!-- Release publish: one self-contained exe, so the installed app doesn't need the .NET runtime. -->
