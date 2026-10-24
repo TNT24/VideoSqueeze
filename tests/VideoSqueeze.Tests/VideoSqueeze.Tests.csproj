@@ -12,6 +12,7 @@
   <ItemGroup>
     <Compile Include="..\..\Squeezer.cs" Link="App\Squeezer.cs" />
     <Compile Include="..\..\Tools.cs" Link="App\Tools.cs" />
+    <Compile Include="..\..\Updater.cs" Link="App\Updater.cs" />
   </ItemGroup>
 
   <ItemGroup>

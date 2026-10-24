@@ -49,6 +49,13 @@ public class MainForm : Form
         BackColor = Theme.Card, ForeColor = Theme.SubtleText,
     };
     readonly ToolTip tips = new() { AutoPopDelay = 20000 };
+    readonly Card updateBar = new() { Dock = DockStyle.Fill, BackColor = Theme.Selection, Visible = false };
+    readonly Label lblUpdate = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
+    readonly ModernButton btnUpdate = new("Update", primary: true);
+    readonly ModernButton btnUpdateLater = new("Later");
+    readonly System.Windows.Forms.Timer updateTimer = new() { Interval = 6 * 60 * 60 * 1000 };
+    Update? update;
+    string? updateInstaller; // downloaded, waiting for the current run to finish
 
     CancellationTokenSource? cts;
     List<ListViewItem>? queue; // the running batch; Retry appends to it
@@ -231,20 +238,50 @@ public class MainForm : Form
         logTitle.Height = S(24);
         logCard.Controls.Add(logTitle);
 
-        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 6, ColumnCount = 1, Padding = new Padding(S(20), S(16), S(20), S(18)) };
+        // ----- update bar (hidden until a newer release is found) -----
+        var updateRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, BackColor = Theme.Selection };
+        updateRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        updateRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        updateRow.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        updateRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        lblUpdate.ForeColor = Theme.Text;
+        lblUpdate.Font = Theme.Body(9.75f, FontStyle.Bold);
+        updateRow.Controls.Add(lblUpdate, 0, 0);
+        foreach (var (b, col) in new[] { (btnUpdateLater, 1), (btnUpdate, 2) })
+        {
+            b.Anchor = AnchorStyles.None;
+            b.Height = S(32);
+            b.Margin = new Padding(S(8), 0, 0, 0);
+            updateRow.Controls.Add(b, col, 0);
+        }
+        btnUpdate.Click += async (_, _) => await UpdateNowAsync();
+        btnUpdateLater.Click += (_, _) => ShowUpdateBar(false);
+        updateBar.Padding = new Padding(S(16), S(6), S(10), S(6));
+        updateBar.Controls.Add(updateRow);
+        updateTimer.Tick += async (_, _) => await CheckForUpdateAsync();
+        Shown += async (_, _) =>
+        {
+            await Task.Delay(3000); // let the window settle first; this is a background check
+            await CheckForUpdateAsync();
+            updateTimer.Start();
+        };
+
+        var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 7, ColumnCount = 1, Padding = new Padding(S(20), S(16), S(20), S(18)) };
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 0));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 62));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(150)));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(150)));
         root.RowStyles.Add(new RowStyle(SizeType.Absolute, S(84)));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 38));
-        root.Controls.Add(header, 0, 0);
-        root.Controls.Add(listCard, 0, 1);
-        root.Controls.Add(presetCard, 0, 2);
-        root.Controls.Add(settingsBox, 0, 3);
-        root.Controls.Add(actionCard, 0, 4);
-        root.Controls.Add(logCard, 0, 5);
+        root.Controls.Add(updateBar, 0, 0);
+        root.Controls.Add(header, 0, 1);
+        root.Controls.Add(listCard, 0, 2);
+        root.Controls.Add(presetCard, 0, 3);
+        root.Controls.Add(settingsBox, 0, 4);
+        root.Controls.Add(actionCard, 0, 5);
+        root.Controls.Add(logCard, 0, 6);
         Controls.Add(root);
 
         cbPreset.SelectedIndexChanged += (_, _) => { OnPresetChanged(); RefreshEstimates(); };
@@ -527,6 +564,7 @@ public class MainForm : Form
     void AddPaths(IEnumerable<string> paths)
     {
         var existing = list.Items.Cast<ListViewItem>().Select(i => (string)i.Tag!).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        int already = 0;
         foreach (var p in paths)
         {
             IEnumerable<string> files = Directory.Exists(p)
@@ -541,10 +579,20 @@ public class MainForm : Form
                     Tag = f,
                     ToolTipText = f,
                 };
+                // Compressed before (e.g. the folder was added again): don't make a second copy. Remove the
+                // _squeezed file to compress it again.
+                if (FindOutput(f) is { } done)
+                {
+                    outputs[f] = done;
+                    item.SubItems[2].Text = "Done (already squeezed)";
+                    item.SubItems[4].Text = Format.Bytes(new FileInfo(done).Length);
+                    already++;
+                }
                 list.Items.Add(item);
             }
         }
         UpdateEmptyState();
+        if (already > 0) Log($"{already} video(s) already have a _squeezed copy — marked Done and skipped. Delete the copy to compress again.");
         long total = list.Items.Cast<ListViewItem>().Sum(i => File.Exists((string)i.Tag!) ? new FileInfo((string)i.Tag!).Length : 0);
         lblStatus.Text = $"{list.Items.Count} video(s) — {Format.Bytes(total)} in total.";
     }
@@ -759,6 +807,69 @@ public class MainForm : Form
             new CompareForm(lastCompressed, compressed).Show(this); // modeless: the list stays usable
     }
 
+    // ---------- updates ----------
+
+    async Task CheckForUpdateAsync()
+    {
+        if (update != null) return; // already offered (or downloading)
+        try { update = await Updater.CheckAsync(default); }
+        catch { return; } // offline or GitHub unreachable: try again at the next check
+        if (update == null) return;
+        Log($"VideoSqueeze {update.Version} is available (you have {Updater.Current}).");
+        lblUpdate.Text = $"VideoSqueeze {update.Version} is available — you have {Updater.Current}.";
+        btnUpdate.Text = "Update";
+        ShowUpdateBar(true);
+    }
+
+    void ShowUpdateBar(bool show)
+    {
+        updateBar.Visible = show;
+        if (updateBar.Parent is TableLayoutPanel root)
+            root.RowStyles[root.GetRow(updateBar)] = new RowStyle(SizeType.Absolute, show ? S(56) + updateBar.Margin.Bottom : 0);
+    }
+
+    async Task UpdateNowAsync()
+    {
+        if (update == null) return;
+        if (updateInstaller == null)
+        {
+            btnUpdate.Enabled = btnUpdateLater.Enabled = false;
+            try
+            {
+                updateInstaller = await Task.Run(() => Updater.DownloadAsync(update,
+                    f => BeginInvoke(() => lblUpdate.Text = $"Downloading VideoSqueeze {update.Version}… {f:P0}"), default));
+            }
+            catch (Exception ex)
+            {
+                Log($"Update download failed: {ex.Message}");
+                lblUpdate.Text = "The update couldn't be downloaded. Try again later.";
+                btnUpdate.Text = "Retry";
+                btnUpdate.Enabled = btnUpdateLater.Enabled = true;
+                return;
+            }
+            btnUpdateLater.Enabled = true;
+        }
+        if (cts != null)
+        {
+            // Never interrupt an encode: offer the restart once the run is over (see SetRunning).
+            lblUpdate.Text = $"VideoSqueeze {update.Version} is ready — you can restart to install it when this run finishes.";
+            btnUpdate.Text = "Restart to update";
+            btnUpdate.Enabled = false;
+            return;
+        }
+        lblUpdate.Text = $"Installing VideoSqueeze {update.Version}…";
+        Log(lblUpdate.Text);
+        try { Updater.Install(updateInstaller); }
+        catch (Exception ex)
+        {
+            Log($"Couldn't start the installer: {ex.Message}");
+            lblUpdate.Text = "The installer couldn't start.";
+            btnUpdate.Enabled = true;
+            return;
+        }
+        Close();
+    }
+
     // ---------- completion alert ----------
 
     [StructLayout(LayoutKind.Sequential)]
@@ -831,6 +942,7 @@ public class MainForm : Form
     {
         btnStart.Enabled = btnEstimate.Enabled = !running;
         btnCancel.Enabled = running;
+        if (updateInstaller != null) btnUpdate.Enabled = !running;
         foreach (Control c in new Control[] { cbPreset, cbMode, cbCodec, cbSpeed, cbContainer, numVmaf, numQuality, txtOut, chkDiscard })
             c.Enabled = !running;
         if (!running) UpdateEnabled();

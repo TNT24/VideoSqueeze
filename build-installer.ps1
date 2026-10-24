@@ -1,4 +1,6 @@
-﻿# Publishes VideoSqueeze and wraps it in a Windows installer (installer\VideoSqueeze-Setup-<version>.exe).
+# Publishes VideoSqueeze and wraps it in a Windows installer (installer\VideoSqueeze-Setup-<version>.exe).
+# -Publish also uploads it as a GitHub release, which installed copies then offer as an update.
+param([switch]$Publish)
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
@@ -18,3 +20,11 @@ if (-not $iscc) { throw "Inno Setup not found. Install it with: winget install J
 
 & $iscc "/DAppVersion=$version" installer.iss
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed" }
+
+if ($Publish) {
+    if (git status --porcelain) { throw "Commit your changes before publishing." }
+    git push
+    if ($LASTEXITCODE -ne 0) { throw "git push failed" }
+    gh release create "v$version" "installer\VideoSqueeze-Setup-$version.exe" --title "VideoSqueeze $version" --generate-notes --target (git rev-parse HEAD)
+    if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
+}

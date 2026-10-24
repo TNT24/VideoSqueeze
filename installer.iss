@@ -10,7 +10,9 @@ AppId={{6F3B2A1E-9C4D-4E8B-A7F2-5D1C0B9E8A43}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
-AppPublisher=Mark
+AppPublisher=TNT24
+AppPublisherURL=https://github.com/TNT24/VideoSqueeze
+AppUpdatesURL=https://github.com/TNT24/VideoSqueeze/releases
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
@@ -107,3 +109,5 @@ Root: HKA; Subkey: "Software\Classes\SystemFileAssociations\.3gp\shell\VideoSque
 
 [Run]
 Filename: "{app}\VideoSqueeze.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+; In-app updates run Setup silently after closing the app; start it again afterwards.
+Filename: "{app}\VideoSqueeze.exe"; Flags: nowait runasoriginaluser; Check: WizardSilent
