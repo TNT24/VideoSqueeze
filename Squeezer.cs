@@ -132,11 +132,13 @@ class Squeezer
             if (vf != null) args.AddRange(new[] { "-vf", vf });
             args.AddRange(OtherStreamArgs(m, container));
             args.AddRange(new[] { "-map_metadata", "0", "-map_chapters", "0", "-max_muxing_queue_size", "4096" });
+            args.AddRange(new[] { "-metadata", $"{SourceTag}={SourceId(src)}" });
             // Sparse tracks (e.g. DVD subtitles that first appear minutes in) otherwise make the muxer write seconds of
             // audio ahead of the first video frame; VLC then drops the opening keyframe → missing/blocky first seconds.
             // Wait up to 120 s for every track instead of the default 10 s.
             args.AddRange(new[] { "-max_interleave_delta", "120000000" });
-            if (container == "mp4") args.AddRange(new[] { "-movflags", "+faststart" });
+            // use_metadata_tags: MP4 otherwise drops custom tags such as SourceTag.
+            if (container == "mp4") args.AddRange(new[] { "-movflags", "+faststart+use_metadata_tags" });
             args.AddRange(new[] { "-progress", "pipe:1", "-nostats", "-f", container == "mp4" ? "mp4" : "matroska", partPath });
 
             var started = DateTime.UtcNow;
@@ -485,6 +487,38 @@ class Squeezer
         }
         a.AddRange(new[] { "-strict", "-2" });
         return a;
+    }
+
+    /// <summary>Tag in every output naming its source, so a same-named video from another folder isn't mistaken for done.</summary>
+    const string SourceTag = "VIDEOSQUEEZE_SOURCE";
+
+    /// <summary>Identifies a source file without writing its path into the output.</summary>
+    internal static string SourceId(string src) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+        System.Text.Encoding.UTF8.GetBytes($"{Path.GetFullPath(src).ToUpperInvariant()}|{new FileInfo(src).Length}")))[..16];
+
+    /// <summary>
+    /// The earlier compressed copy of <paramref name="src"/>, if there is one: "name_squeezed*" next to it, or in
+    /// <paramref name="outputFolder"/> carrying its <see cref="SourceTag"/>. A shared output folder can hold same-named
+    /// copies of videos from other folders, so there the name alone isn't enough.
+    /// </summary>
+    internal static async Task<string?> FindOutputAsync(string src, string outputFolder, CancellationToken ct)
+    {
+        var name = Path.GetFileNameWithoutExtension(src) + "_squeezed";
+        string own = Path.GetDirectoryName(src) ?? "";
+        string id = SourceId(src);
+        var dirs = new[] { own, outputFolder.Trim() }.Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in dirs.SelectMany(d => Directory.EnumerateFiles(d, name + "*"))
+                              .Where(f => Path.GetExtension(f) is ".mkv" or ".mp4")
+                              .OrderByDescending(File.GetLastWriteTimeUtc))
+        {
+            var tag = (await Tools.RunAsync(Tools.Ffprobe, new[]
+            {
+                "-v", "error", "-show_entries", $"format_tags={SourceTag}", "-of", "default=nw=1:nk=1", f,
+            }, ct, collectStdout: true)).Stdout.Trim();
+            // Untagged = made before tagging existed: trust it only next to its source, where names are unique.
+            if (tag == id || (tag == "" && string.Equals(Path.GetDirectoryName(f), own, StringComparison.OrdinalIgnoreCase))) return f;
+        }
+        return null;
     }
 
     string OutputPath(string src, string container)

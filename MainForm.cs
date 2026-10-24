@@ -658,17 +658,14 @@ public class MainForm : Form
         f.ShowDialog(this);
     }
 
-    /// <summary>The compressed file for a source: from this session, or the newest "_squeezed" file on disk.</summary>
+    /// <summary>The compressed file for a source: from this session, or one on disk that provably came from it.</summary>
     string? FindOutput(string src)
     {
         if (outputs.TryGetValue(src, out var known) && File.Exists(known)) return known;
-        var name = Path.GetFileNameWithoutExtension(src) + "_squeezed";
-        var dirs = new[] { txtOut.Text.Trim(), Path.GetDirectoryName(src) ?? "" }.Where(Directory.Exists).Distinct();
-        return dirs
-            .SelectMany(d => Directory.EnumerateFiles(d, name + "*"))
-            .Where(f => Path.GetExtension(f) is ".mkv" or ".mp4")
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .FirstOrDefault();
+        string outFolder = txtOut.Text;
+        // Off the UI thread: blocking on it directly would deadlock on the WinForms synchronization context.
+        try { return Task.Run(() => Squeezer.FindOutputAsync(src, outFolder, default)).GetAwaiter().GetResult(); }
+        catch { return null; } // e.g. ffprobe missing
     }
 
     // ---------- running ----------

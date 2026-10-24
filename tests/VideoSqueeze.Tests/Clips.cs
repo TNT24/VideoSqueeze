@@ -77,6 +77,11 @@ public sealed class FfmpegFactAttribute : FactAttribute
     public FfmpegFactAttribute() { if (!Clips.HaveFfmpeg) Skip = "FFmpeg not found"; }
 }
 
+public sealed class FfmpegTheoryAttribute : TheoryAttribute
+{
+    public FfmpegTheoryAttribute() { if (!Clips.HaveFfmpeg) Skip = "FFmpeg not found"; }
+}
+
 /// <summary>A test that needs FFmpeg's NVIDIA encoder.</summary>
 public sealed class NvencFactAttribute : FactAttribute
 {

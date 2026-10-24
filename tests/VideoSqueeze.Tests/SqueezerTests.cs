@@ -58,6 +58,50 @@ public class SqueezerTests
         Assert.True(vmaf >= 94.5, $"quality {e.Quality}: real encode VMAF {vmaf}");
     }
 
+    [FfmpegTheory]
+    [InlineData("mkv")]
+    [InlineData("mp4")]
+    public async Task SameNameFromAnotherFolder_IsNotMistakenForDone(string container)
+    {
+        // Two discs both have "same.mkv", compressed into one shared folder: only the one actually compressed counts.
+        var root = Clips.OutDir();
+        string Copy(string clip, string folder)
+        {
+            var path = Path.Combine(Directory.CreateDirectory(Path.Combine(root, folder)).FullName, "same.mkv");
+            File.Copy(clip, path);
+            return path;
+        }
+        var a = Copy(await Clips.FilmFlaggedInterlaced, "disc1");
+        var b = Copy(await Clips.Interlaced, "disc2");
+        var shared = Path.Combine(root, "out");
+        var squeezer = new Squeezer(new Settings
+        {
+            Mode = Mode.Manual, Codec = Codec.X265, Speed = Speed.Fast, ManualQuality = 28, Container = container,
+            OutputFolder = shared, DiscardIfLarger = false,
+        }, _ => { }, (_, _) => { });
+        var r = await squeezer.RunAsync(a, default);
+        Assert.True(r.Saved, r.Status);
+
+        Assert.Equal(r.OutputPath, await Squeezer.FindOutputAsync(a, shared, default));
+        Assert.Null(await Squeezer.FindOutputAsync(b, shared, default));
+    }
+
+    [FfmpegFact]
+    public async Task UntaggedCopyNextToItsSource_StillCountsAsDone()
+    {
+        // Outputs from before the source tag existed: next to the source the name is enough, in a shared folder it isn't.
+        var dir = Directory.CreateDirectory(Path.Combine(Clips.OutDir(), "old")).FullName;
+        var src = Path.Combine(dir, "film.mkv");
+        File.Copy(await Clips.FilmFlaggedInterlaced, src);
+        var old = Path.Combine(dir, "film_squeezed.mkv");
+        File.Copy(src, old);
+        Assert.Equal(old, await Squeezer.FindOutputAsync(src, "", default));
+
+        var elsewhere = Path.Combine(Clips.OutDir(), "film.mkv");
+        File.Copy(src, elsewhere);
+        Assert.Null(await Squeezer.FindOutputAsync(elsewhere, dir, default));
+    }
+
     [FfmpegFact]
     public async Task SparseSubtitles_VideoStillComesFirst()
     {
