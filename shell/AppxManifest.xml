@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sparse package: gives VideoSqueeze package identity so its Explorer command ("Squeeze with VideoSqueeze") shows in the Windows 11
+     context menu. No app files are inside it; they stay in the install folder (the external location).
+     Signed by build-menu.ps1 with the self-signed CN=TNT24 certificate (Publisher must match it),
+     which the installer trusts machine-wide (Windows refuses unsigned packages with Explorer extensions).
+     {VERSION} is filled in by shell\build-menu.ps1. -->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap10 desktop4 desktop5 com rescap">
+
+  <Identity Name="TNT24.VideoSqueeze" Publisher="CN=TNT24"
+            Version="{VERSION}" ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>VideoSqueeze</DisplayName>
+    <PublisherDisplayName>TNT24</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+  </Properties>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26300.0" />
+  </Dependencies>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
+
+  <Applications>
+    <!-- AppListEntry="none": the installer already adds the normal Start menu shortcut. -->
+    <Application Id="App" Executable="VideoSqueeze.exe" uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements AppListEntry="none" DisplayName="VideoSqueeze" Description="Shrink videos without visible quality loss"
+                          BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png"
+                          Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <!-- Keep in sync with MainForm.VideoExtensions and installer.iss. -->
+            <desktop5:ItemType Type="Directory">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".mp4">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".mkv">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".mov">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".avi">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".m4v">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".webm">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".wmv">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".flv">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".ts">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".m2ts">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".mts">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".mpg">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".mpeg">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".mxf">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".3gp">
+              <desktop5:Verb Id="VideoSqueeze" Clsid="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" />
+            </desktop5:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="VideoSqueeze Explorer menu">
+              <com:Class Id="5FE62E79-A5AA-4D92-893D-B71CC01CA7FC" Path="VideoSqueezeMenu.dll" ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

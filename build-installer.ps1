@@ -11,6 +11,9 @@ if (Test-Path build) { Remove-Item build -Recurse -Force }
 dotnet publish -c Release -o build
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
+# Windows 11 right-click menu: VideoSqueezeMenu.dll + VideoSqueezeMenu.msix next to the exe.
+$null = & shell\build-menu.ps1 -Name VideoSqueeze -Version $version -OutDir build
+
 $iscc = @(
     "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",

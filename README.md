@@ -56,6 +56,14 @@ against GitHub's SHA-256 digest), installs it and reopens the app. A running enc
 Publishes a self-contained exe to `build\` and packages it with [Inno Setup](https://jrsoftware.org/isinfo.php)
 (`winget install JRSoftware.InnoSetup`) into `installer\`. Bump `<Version>` in `VideoSqueeze.csproj` for a new release.
 
+The Windows 11 right-click menu entry (top level, or **App extensions** in the new customisable menu) comes from
+`shell\`: a small C++ handler DLL and a sparse package that registers it, built by `shell\build-menu.ps1`. The package is
+signed with a self-signed `CN=TNT24` certificate (made on the first build, kept in `Cert:\CurrentUser\My`); installing
+trusts it machine-wide, which takes one UAC prompt the first time.
+That needs the C++ build tools: `winget install Microsoft.VisualStudio.2022.BuildTools --override "--quiet --wait
+--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"`. The classic entry under **Show more options**
+stays for Windows 10.
+
 Tests: `dotnet test tests/VideoSqueeze.Tests` (encodes small generated clips; needs FFmpeg).
 
 Set `VIDEOSQUEEZE_DEBUG=1` to print every ffmpeg command to the console.
