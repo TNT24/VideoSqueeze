@@ -7,9 +7,12 @@ Set-Location $PSScriptRoot
 [xml]$proj = Get-Content VideoSqueeze.csproj
 $version = ($proj.Project.PropertyGroup | Where-Object Version | Select-Object -First 1).Version
 
+& .\get-ffmpeg.ps1
+
 if (Test-Path build) { Remove-Item build -Recurse -Force }
 dotnet publish -c Release -o build
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
+if (-not (Test-Path build\ffmpeg\ffmpeg.exe) -or -not (Test-Path build\ffmpeg\ffprobe.exe)) { throw "The bundled FFmpeg is missing from build\ffmpeg" }
 
 # Windows 11 right-click menu: VideoSqueezeMenu.dll + VideoSqueezeMenu.msix next to the exe.
 $null = & shell\build-menu.ps1 -Name VideoSqueeze -Version $version -OutDir build

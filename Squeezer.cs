@@ -105,8 +105,22 @@ class Squeezer
         if (ffv1 && s.Container != "mkv") log("  Lossless FFV1 needs MKV; writing .mkv.");
         await DecideScanAsync(m, ct);
 
+        // An encode of this video that was cut short last time (app closed, PC restarted): carry on from it, as long as
+        // nothing that changes the picture is different now.
+        var resume = ResumeStore.Get(src);
         int quality = 0;
-        if (s.Mode == Mode.Auto)
+        if (resume != null)
+        {
+            quality = s.Mode switch { Mode.Auto => resume.Quality, Mode.Manual => s.ManualQuality, _ => 0 };
+            if (ArgsKey(m, quality, container, ffv1) != resume.ArgsKey || !resume.Segments.All(x => File.Exists(x.File)))
+            {
+                log("  An unfinished earlier encode of this video used different settings — starting it again.");
+                ResumeStore.Discard(src);
+                resume = null;
+            }
+            else log($"  Carrying on from last time at {Clock(resume.Done)} (quality {quality}).");
+        }
+        if (resume == null && s.Mode == Mode.Auto)
         {
             var (q, vmaf, predicted) = known != null && known.OriginalSize == m.Size
                 ? (known.Quality, known.Vmaf, known.PredictedSize)
@@ -120,57 +134,239 @@ class Squeezer
                 return new SqueezeResult(false, "Skipped (already efficient)");
             }
         }
-        else if (s.Mode == Mode.Manual)
+        else if (resume == null && s.Mode == Mode.Manual)
             quality = s.ManualQuality;
 
-        var outPath = OutputPath(src, container);
-        var partPath = outPath + ".part";
+        string outPath = resume != null && !File.Exists(resume.OutPath) ? resume.OutPath : OutputPath(src, container);
+        bool keep = false;
+        var temps = new List<string>();
         try
         {
-            var args = new List<string> { "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", src, "-map", $"0:{m.VideoIndex}" };
-            args.AddRange(s.Mode == Mode.Lossless ? LosslessArgs(m, ffv1) : VideoArgs(m, quality, container));
-            if (vf != null) args.AddRange(new[] { "-vf", vf });
-            args.AddRange(OtherStreamArgs(m, container));
-            args.AddRange(new[] { "-map_metadata", "0", "-map_chapters", "0", "-max_muxing_queue_size", "4096" });
-            args.AddRange(new[] { "-metadata", $"{SourceTag}={SourceId(src)}" });
-            // Sparse tracks (e.g. DVD subtitles that first appear minutes in) otherwise make the muxer write seconds of
-            // audio ahead of the first video frame; VLC then drops the opening keyframe → missing/blocky first seconds.
-            // Wait up to 120 s for every track instead of the default 10 s.
-            args.AddRange(new[] { "-max_interleave_delta", "120000000" });
-            // use_metadata_tags: MP4 otherwise drops custom tags such as SourceTag.
-            if (container == "mp4") args.AddRange(new[] { "-movflags", "+faststart+use_metadata_tags" });
-            args.AddRange(new[] { "-progress", "pipe:1", "-nostats", "-f", container == "mp4" ? "mp4" : "matroska", partPath });
-
-            var started = DateTime.UtcNow;
-            await Tools.FfmpegAsync(args, ct, line =>
+            if (resume == null)
             {
-                if (!line.StartsWith("out_time_us=") || m.Duration <= 0) return;
-                if (!long.TryParse(line.AsSpan(12), out var us) || us < 0) return;
-                double frac = Math.Clamp(us / 1e6 / m.Duration, 0, 1);
-                var elapsed = DateTime.UtcNow - started;
-                string eta = frac > 0.01 ? $" — {TimeSpan.FromSeconds(elapsed.TotalSeconds / frac * (1 - frac)):hh\\:mm\\:ss} left" : "";
-                progress($"Encoding {frac:P0}{eta}", frac);
-            });
+                resume = new ResumePoint(src, SourceId(src), ArgsKey(m, quality, container, ffv1), quality, outPath, outPath + ".part", new());
+                ResumeStore.Save(resume);
+            }
+            else resume = await KeepFinishedPartAsync(resume with { OutPath = outPath }, ct);
 
-            await CheckVideoStartsFirstAsync(partPath, ct);
-            await VerifyOutputAsync(m, partPath, container, ct);
-            long outSize = new FileInfo(partPath).Length;
+            double start = resume.Done;
+            bool videoOnly = container == "mp4" || start > 0;
+            await EncodeAsync(m, quality, container, ffv1, start, videoOnly, resume.Current, ct);
+
+            string final = resume.Current;
+            if (resume.Segments.Count > 0 || videoOnly)
+            {
+                var pieces = resume.Segments.Append(new Segment(resume.Current, 0)).ToList();
+                if (pieces.Count > 1) await CheckJoinableAsync(pieces, ct);
+                final = outPath + ".mux.part";
+                temps.Add(final);
+                await MuxAsync(m, pieces, container, ffv1, final, temps, ct);
+            }
+
+            await CheckVideoStartsFirstAsync(final, ct);
+            await VerifyOutputAsync(m, final, container, ct);
+            long outSize = new FileInfo(final).Length;
             if (s.DiscardIfLarger && outSize >= m.Size)
             {
-                File.Delete(partPath);
                 log($"  Output ({Format.Bytes(outSize)}) was not smaller than the original — discarded, original kept.");
                 return new SqueezeResult(false, "Skipped (not smaller)");
             }
-            File.Move(partPath, outPath);
+            File.Move(final, outPath);
             double saved = 100.0 * (1 - (double)outSize / m.Size);
             string change = saved >= 0 ? $"{saved:0.#}% smaller" : $"{-saved:0.#}% LARGER";
             log($"  ✔ {Format.Bytes(m.Size)} → {Format.Bytes(outSize)} ({change}) → {outPath}");
             return new SqueezeResult(true, saved >= 0 ? $"Done (−{saved:0}%)" : $"Done (+{-saved:0}%)", outSize, outPath);
         }
+        catch (OperationCanceledException) when (KeepUnfinished())
+        {
+            keep = true;
+            log("  Progress saved — this video carries on from here next time.");
+            throw;
+        }
         finally
         {
-            try { if (File.Exists(partPath)) File.Delete(partPath); } catch { }
+            foreach (var f in temps) try { File.Delete(f); } catch { }
+            if (!keep)
+            {
+                try { ResumeStore.Discard(src); } catch { }
+                if (resume != null) foreach (var f in resume.Files) try { File.Delete(f); } catch { }
+            }
         }
+    }
+
+    /// <summary>When cancelled, keep the unfinished encode to carry on with next time instead of deleting it.</summary>
+    public Func<bool> KeepUnfinished { get; init; } = () => false;
+
+    static string Clock(double s) => TimeSpan.FromSeconds(s).ToString(@"h\:mm\:ss");
+    static string Num(double x) => x.ToString("0.######", CultureInfo.InvariantCulture);
+
+    /// <summary>Identifies everything that shapes the encoded picture, so a resumed encode only continues an identical one.</summary>
+    string ArgsKey(MediaInfo m, int quality, string container, bool ffv1) =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+            string.Join("\u001f", VideoCodecArgs(m, quality, container, ffv1).Append(vf ?? "").Append(container)))))[..16];
+
+    List<string> VideoCodecArgs(MediaInfo m, int quality, string container, bool ffv1) =>
+        // Without the MP4-only hvc1 tag: pieces are encoded to Matroska and the tag is set when they are joined (MuxAsync).
+        StripTag(s.Mode == Mode.Lossless ? LosslessArgs(m, ffv1) : VideoArgs(m, quality, container));
+
+    static List<string> StripTag(List<string> a)
+    {
+        int i = a.IndexOf("-tag:v");
+        if (i >= 0) a.RemoveRange(i, 2);
+        return a;
+    }
+
+    /// <summary>Encodes the video from <paramref name="start"/> seconds to the end into <paramref name="output"/>.</summary>
+    async Task EncodeAsync(MediaInfo m, int quality, string container, bool ffv1, double start, bool videoOnly, string output, CancellationToken ct)
+    {
+        var args = new List<string> { "-hide_banner", "-nostdin", "-y", "-loglevel", "error" };
+        string? filter = vf;
+        if (start > 0)
+        {
+            // Seek a little early (deinterlacing needs the frames around the join) and cut at exactly `start` after the
+            // filters, so this piece begins with the first frame the earlier ones don't have.
+            double seek = Math.Max(0, start - 5);
+            args.AddRange(new[] { "-ss", Num(seek) });
+            filter = (vf != null ? vf + "," : "") + $"trim=start={Num(start - seek - 0.25 / m.Fps)},setpts=PTS-STARTPTS";
+        }
+        args.AddRange(new[] { "-i", m.Path, "-map", $"0:{m.VideoIndex}" });
+        args.AddRange(VideoCodecArgs(m, quality, container, ffv1));
+        if (filter != null) args.AddRange(new[] { "-vf", filter });
+        if (videoOnly)
+            // Audio, subtitles and chapters come straight from the original when the pieces are joined (MuxAsync).
+            args.AddRange(new[] { "-an", "-sn", "-dn" });
+        else
+        {
+            args.AddRange(OtherStreamArgs(m, container, 0));
+            args.AddRange(new[] { "-map_metadata", "0", "-map_chapters", "0", "-max_muxing_queue_size", "4096" });
+            args.AddRange(new[] { "-metadata", $"{SourceTag}={SourceId(m.Path)}" });
+            // Sparse tracks (e.g. DVD subtitles that first appear minutes in) otherwise make the muxer write seconds of
+            // audio ahead of the first video frame; VLC then drops the opening keyframe → missing/blocky first seconds.
+            // Wait up to 120 s for every track instead of the default 10 s.
+            args.AddRange(new[] { "-max_interleave_delta", "120000000" });
+        }
+        // Always Matroska while encoding: unlike MP4 it stays readable if the app or PC stops mid-way, which resuming needs.
+        args.AddRange(new[] { "-progress", "pipe:1", "-nostats", "-f", "matroska", output });
+
+        var started = Tools.ActiveTime; // stands still while paused, so pauses don't inflate the ETA
+        double from = m.Duration > 0 ? start / m.Duration : 0;
+        await Tools.FfmpegAsync(args, ct, line =>
+        {
+            if (!line.StartsWith("out_time_us=") || m.Duration <= 0) return;
+            if (!long.TryParse(line.AsSpan(12), out var us) || us < 0) return;
+            double frac = Math.Clamp((start + us / 1e6) / m.Duration, 0, 1);
+            var elapsed = Tools.ActiveTime - started;
+            string eta = frac - from > 0.01 ? $" — {TimeSpan.FromSeconds(elapsed.TotalSeconds / (frac - from) * (1 - frac)):hh\\:mm\\:ss} left" : "";
+            progress($"Encoding {frac:P0}{eta}", frac);
+        });
+    }
+
+    /// <summary>
+    /// Keeps what the interrupted encode wrote as one more finished segment: everything before its last keyframe in
+    /// decoding order. (What follows it may be cut off mid-write, and it's re-encoded from there anyway.)
+    /// </summary>
+    async Task<ResumePoint> KeepFinishedPartAsync(ResumePoint resume, CancellationToken ct)
+    {
+        progress("Picking up where it stopped", 0);
+        string old = resume.Current;
+        var segments = new List<Segment>(resume.Segments);
+        if (File.Exists(old) && await CutPointAsync(old, ct) is { } cut)
+        {
+            var seg = $"{resume.OutPath}.seg{segments.Count}.part";
+            await Tools.FfmpegAsync(new[]
+            {
+                "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", old, "-map", "0:v:0", "-c", "copy",
+                "-frames:v", cut.Packets.ToString(CultureInfo.InvariantCulture), "-f", "matroska", seg,
+            }, ct);
+            segments.Add(new Segment(seg, cut.Duration));
+        }
+        var next = resume with { Current = $"{resume.OutPath}.{segments.Count}.part", Segments = segments };
+        ResumeStore.Save(next); // before the old piece is deleted, so stopping right here loses nothing
+        if (!string.Equals(old, next.Current, StringComparison.OrdinalIgnoreCase)) try { File.Delete(old); } catch { }
+        log($"  Kept the first {Clock(next.Done)} already encoded; encoding the rest.");
+        return next;
+    }
+
+    /// <summary>
+    /// Where an interrupted encode can be cut: the number of packets before its last keyframe, and how much video those
+    /// cover. Null if it's unreadable or holds too little to bother.
+    /// </summary>
+    internal static async Task<(int Packets, double Duration)?> CutPointAsync(string file, CancellationToken ct)
+    {
+        var r = await Tools.RunAsync(Tools.Ffprobe, new[]
+        {
+            "-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time,duration_time,flags", "-of", "csv=p=0", file,
+        }, ct, collectStdout: true);
+        var pts = new List<double>();
+        var durations = new List<double>();
+        int lastKey = -1;
+        foreach (var line in r.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var f = line.Split(',');
+            if (f.Length < 3 || !double.TryParse(f[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var p)) break;
+            if (f[2].Contains('C')) break; // corrupt: the file was cut off here
+            if (f[2].StartsWith('K')) lastKey = pts.Count;
+            pts.Add(p);
+            if (double.TryParse(f[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && d > 0) durations.Add(d);
+        }
+        if (lastKey < 2) return null;
+        var kept = pts.Take(lastKey).OrderBy(x => x).ToList();
+        var gaps = kept.Zip(kept.Skip(1), (a, b) => b - a).ToList();
+        double frame = (durations.Count > 0 ? durations : gaps).OrderBy(x => x).ElementAt((durations.Count > 0 ? durations : gaps).Count / 2);
+        // Must be every frame from the start with none missing, or the join would jump.
+        if (frame <= 0 || kept[0] > frame / 2 || gaps.Any(g => g < frame / 2 || g > frame * 1.5)) return null;
+        double duration = kept[^1] + frame;
+        return duration < 10 ? null : (lastKey, duration);
+    }
+
+    /// <summary>The pieces can only be joined without re-encoding if they were encoded identically.</summary>
+    static async Task CheckJoinableAsync(List<Segment> pieces, CancellationToken ct)
+    {
+        string? first = null;
+        foreach (var p in pieces)
+        {
+            var r = await Tools.RunAsync(Tools.Ffprobe, new[]
+            {
+                "-v", "error", "-select_streams", "v:0", "-show_data_hash", "SHA256",
+                "-show_entries", "stream=codec_name,profile,width,height,pix_fmt,extradata_hash", "-of", "default=nw=1", p.File,
+            }, ct, collectStdout: true);
+            first ??= r.Stdout;
+            if (r.Stdout != first)
+                throw new Exception("The video encoded before and after the pause doesn't match (was FFmpeg or the driver updated?), " +
+                                    "so it can't be joined. Press Start to compress this video again from the beginning.");
+        }
+    }
+
+    /// <summary>Joins the video pieces (stream copy) and adds audio, subtitles, chapters and tags from the original.</summary>
+    async Task MuxAsync(MediaInfo m, List<Segment> pieces, string container, bool ffv1, string output, List<string> temps, CancellationToken ct)
+    {
+        progress("Saving the file", 1);
+        var args = new List<string> { "-hide_banner", "-nostdin", "-y", "-loglevel", "error" };
+        if (pieces.Count == 1) args.AddRange(new[] { "-i", pieces[0].File });
+        else
+        {
+            var list = output + ".txt";
+            temps.Add(list);
+            var lines = new List<string> { "ffconcat version 1.0" };
+            foreach (var p in pieces)
+            {
+                lines.Add($"file '{p.File.Replace('\\', '/').Replace("'", @"'\''")}'");
+                if (p.Duration > 0) lines.Add($"duration {Num(p.Duration)}");
+            }
+            await File.WriteAllLinesAsync(list, lines, ct);
+            args.AddRange(new[] { "-f", "concat", "-safe", "0", "-i", list });
+        }
+        args.AddRange(new[] { "-i", m.Path, "-map", "0:v:0", "-c:v", "copy" });
+        bool hevc = s.Mode == Mode.Lossless ? !ffv1 : s.Codec != Codec.Av1;
+        if (container == "mp4" && hevc) args.AddRange(new[] { "-tag:v", "hvc1" });
+        args.AddRange(OtherStreamArgs(m, container, 1));
+        args.AddRange(new[] { "-map_metadata", "1", "-map_chapters", "1", "-max_muxing_queue_size", "4096" });
+        args.AddRange(new[] { "-metadata", $"{SourceTag}={SourceId(m.Path)}" });
+        args.AddRange(new[] { "-max_interleave_delta", "120000000" }); // see EncodeAsync
+        // use_metadata_tags: MP4 otherwise drops custom tags such as SourceTag.
+        if (container == "mp4") args.AddRange(new[] { "-movflags", "+faststart+use_metadata_tags" });
+        args.AddRange(new[] { "-f", container == "mp4" ? "mp4" : "matroska", output });
+        await Tools.FfmpegAsync(args, ct);
     }
 
     /// <summary>Warns if the first video frame sits behind lots of other packets — players like VLC then show a broken start.</summary>
@@ -205,7 +401,6 @@ class Squeezer
     /// <summary>Why the output doesn't match the original (length, tracks), or null if it does.</summary>
     internal static string? OutputProblem(MediaInfo src, MediaInfo output, string container)
     {
-        static string Clock(double s) => TimeSpan.FromSeconds(s).ToString(@"h\:mm\:ss");
         double tolerance = Math.Max(2, src.Duration * 0.002);
         if (src.Duration > 0 && Math.Abs(output.Duration - src.Duration) > tolerance)
             return $"it is {Clock(output.Duration)} long but the original is {Clock(src.Duration)}";
@@ -455,17 +650,17 @@ class Squeezer
     }
 
     /// <summary>Audio, subtitles and attachments are copied untouched (never re-compressed).</summary>
-    IEnumerable<string> OtherStreamArgs(MediaInfo m, string container)
+    IEnumerable<string> OtherStreamArgs(MediaInfo m, string container, int input)
     {
         var a = new List<string>();
         if (container == "mkv")
         {
-            a.AddRange(new[] { "-map", "0:a?", "-map", "0:s?", "-map", "0:t?", "-c:a", "copy", "-c:s", "copy", "-c:t", "copy" });
+            a.AddRange(new[] { "-map", $"{input}:a?", "-map", $"{input}:s?", "-map", $"{input}:t?", "-c:a", "copy", "-c:s", "copy", "-c:t", "copy" });
             return a;
         }
 
         // MP4 can't hold every audio/subtitle format.
-        a.AddRange(new[] { "-map", "0:a?" });
+        a.AddRange(new[] { "-map", $"{input}:a?" });
         for (int i = 0; i < m.Audio.Count; i++)
         {
             if (Mp4Audio.Contains(m.Audio[i].Codec))
@@ -481,7 +676,7 @@ class Squeezer
         {
             if (TextSubs.Contains(codec))
             {
-                a.AddRange(new[] { "-map", $"0:{index}", $"-c:s:{sOut++}", "mov_text" });
+                a.AddRange(new[] { "-map", $"{input}:{index}", $"-c:s:{sOut++}", "mov_text" });
             }
             else log($"  Subtitle track ({codec}) can't go in MP4 and was left out — choose MKV to keep it.");
         }
@@ -527,7 +722,9 @@ class Squeezer
         Directory.CreateDirectory(dir);
         var name = Path.GetFileNameWithoutExtension(src) + "_squeezed";
         var path = Path.Combine(dir, $"{name}.{container}");
-        for (int i = 2; File.Exists(path); i++) path = Path.Combine(dir, $"{name} ({i}).{container}");
+        // Same-named videos from different folders can share a "Save to" folder: skip names an unfinished encode will use.
+        for (int i = 2; File.Exists(path) || File.Exists(path + ".part") || ResumeStore.Claims(path); i++)
+            path = Path.Combine(dir, $"{name} ({i}).{container}");
         return path;
     }
 }

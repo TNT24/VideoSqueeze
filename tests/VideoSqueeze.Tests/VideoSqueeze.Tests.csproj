@@ -13,6 +13,12 @@
     <Compile Include="..\..\Squeezer.cs" Link="App\Squeezer.cs" />
     <Compile Include="..\..\Tools.cs" Link="App\Tools.cs" />
     <Compile Include="..\..\Updater.cs" Link="App\Updater.cs" />
+    <Compile Include="..\..\Resume.cs" Link="App\Resume.cs" />
+  </ItemGroup>
+
+  <!-- Test against the FFmpeg the app ships (get-ffmpeg.ps1), which Tools.Locate finds in ffmpeg\ beside the dll. -->
+  <ItemGroup>
+    <None Include="..\..\ffmpeg\**" Link="ffmpeg\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

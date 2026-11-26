@@ -5,3 +5,5 @@ installer/
 dist/
 .vs/
 *.user
+ffmpeg/
+ffmpeg-cache/

@@ -41,6 +41,19 @@ static class Clips
         };
     });
 
+    /// <summary>A minute of DVD-style video (interlaced MPEG-2, AC-3, a late subtitle): long enough to stop and resume.</summary>
+    public static Task<string> LongDvd => Make("long-dvd.mkv", async () =>
+    {
+        var srt = Path.Combine(Dir, "long.srt");
+        await File.WriteAllTextAsync(srt, "1\n00:00:25,000 --> 00:00:40,000\nAcross the join\n");
+        return new[]
+        {
+            "-f", "lavfi", "-i", "testsrc2=size=720x576:rate=50", "-f", "lavfi", "-i", "sine=f=440:sample_rate=48000", "-i", srt,
+            "-t", "60", "-map", "0", "-map", "1", "-map", "2", "-vf", "tinterlace=interleave_top,setfield=tff",
+            "-c:v", "mpeg2video", "-flags", "+ilme+ildct", "-b:v", "5M", "-c:a", "ac3", "-c:s", "srt",
+        };
+    });
+
     /// <summary>HDR10 with mastering display and content light level info (carried in the HEVC stream only).</summary>
     public static Task<string> Hdr10 => Make("hdr10.mkv",
         "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24", "-t", "2", "-pix_fmt", "yuv420p10le", "-c:v", "libx265",

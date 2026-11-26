@@ -2,7 +2,7 @@
 
 #define AppName "VideoSqueeze"
 #ifndef AppVersion
-  #define AppVersion "1.6.0"
+  #define AppVersion "1.7.0"
 #endif
 
 [Setup]
@@ -42,6 +42,12 @@ Source: "build\VideoSqueezeMenu.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "build\VideoSqueezeMenu.msix"; DestDir: "{app}"; Flags: ignoreversion
 ; The package's self-signed certificate, trusted machine-wide by [Code] TrustCertificate before the package is added.
 Source: "build\TNT24.cer"; DestDir: "{app}"; Flags: ignoreversion
+; Our own FFmpeg (get-ffmpeg.ps1), so nothing else needs installing. Found first by Tools.Locate.
+Source: "build\ffmpeg\*"; DestDir: "{app}\ffmpeg"; Flags: ignoreversion recursesubdirs
+
+[InstallDelete]
+; Drop files from an older bundled FFmpeg (DLL names carry the version).
+Type: filesandordirs; Name: "{app}\ffmpeg"
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\VideoSqueeze.exe"

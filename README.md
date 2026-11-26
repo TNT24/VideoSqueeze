@@ -38,7 +38,8 @@ All presets target VMAF 95 and output MKV. Choose **Custom…** for full control
 ## Requirements
 
 - 64-bit Windows (the .NET runtime is bundled).
-- FFmpeg with libvmaf — found automatically from Shutter Encoder's install, next to the exe, or on PATH.
+- Nothing else: FFmpeg 9.1 (gyan.dev full build, GPL v3, unmodified) is included in an `ffmpeg` folder next to the exe.
+  VideoSqueeze falls back to an FFmpeg on PATH or from Shutter Encoder only if that folder is missing.
 
 ## Updates
 
@@ -54,7 +55,8 @@ against GitHub's SHA-256 digest), installs it and reopens the app. A running enc
 ```
 
 Publishes a self-contained exe to `build\` and packages it with [Inno Setup](https://jrsoftware.org/isinfo.php)
-(`winget install JRSoftware.InnoSetup`) into `installer\`. Bump `<Version>` in `VideoSqueeze.csproj` for a new release.
+(`winget install JRSoftware.InnoSetup`) into `installer\`, together with the FFmpeg that `get-ffmpeg.ps1` fetches (pinned
+version and SHA-256; run it once yourself before `dotnet build`/`dotnet test` on a fresh clone). Bump `<Version>` in `VideoSqueeze.csproj` for a new release.
 
 The Windows 11 right-click menu entry (top level, or **App extensions** in the new customisable menu) comes from
 `shell\`: a small C++ handler DLL and a sparse package that registers it, built by `shell\build-menu.ps1`. The package is

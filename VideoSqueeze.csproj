@@ -10,7 +10,7 @@
     <AssemblyName>VideoSqueeze</AssemblyName>
     <RootNamespace>VideoSqueeze</RootNamespace>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>1.6.0</Version>
+    <Version>1.7.0</Version>
     <Product>VideoSqueeze</Product>
     <Description>Shrink videos without visible quality loss</Description>
     <!-- The test project has its own .csproj; keep its sources out of the app. -->
@@ -29,6 +29,11 @@
 
   <ItemGroup>
     <EmbeddedResource Include="app.ico" LogicalName="app.ico" />
+  </ItemGroup>
+
+  <!-- The bundled FFmpeg (get-ffmpeg.ps1), copied to ffmpeg\ beside the exe: outside the single-file bundle. -->
+  <ItemGroup>
+    <None Include="ffmpeg\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
 </Project>

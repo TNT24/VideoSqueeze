@@ -39,6 +39,7 @@ public class MainForm : Form
     readonly ModernButton btnEstimate = new("Estimate savings");
     readonly ModernButton btnStart = new("Start", primary: true);
     readonly ModernButton btnCancel = new("Stop") { Enabled = false };
+    readonly ModernButton btnPause = new("Resume") { Enabled = false }; // sized for the longer label, then set to Pause
     readonly Dictionary<string, (string Key, Estimate Estimate)> estimates = new(StringComparer.OrdinalIgnoreCase);
     readonly Dictionary<string, string> outputs = new(StringComparer.OrdinalIgnoreCase);
     readonly SlimProgress bar = new() { Dock = DockStyle.Fill, Margin = new Padding(0, 8, 0, 0) };
@@ -213,9 +214,9 @@ public class MainForm : Form
 
         // ----- action card -----
         var actionCard = new Card { Dock = DockStyle.Fill };
-        var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 4, RowCount = 1, BackColor = Theme.Card };
+        var actions = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 5, RowCount = 1, BackColor = Theme.Card };
         actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (int i = 0; i < 3; i++) actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        for (int i = 0; i < 4; i++) actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         actions.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var progressStack = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, Margin = new Padding(0, 0, S(16), 0), BackColor = Theme.Card };
         progressStack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
@@ -223,7 +224,7 @@ public class MainForm : Form
         progressStack.Controls.Add(lblStatus, 0, 0);
         progressStack.Controls.Add(bar, 0, 1);
         actions.Controls.Add(progressStack, 0, 0);
-        foreach (var (b, col) in new[] { (btnCancel, 1), (btnEstimate, 2), (btnStart, 3) })
+        foreach (var (b, col) in new[] { (btnPause, 1), (btnCancel, 2), (btnEstimate, 3), (btnStart, 4) })
         {
             b.Anchor = AnchorStyles.None;
             b.Height = S(40);
@@ -234,6 +235,9 @@ public class MainForm : Form
         btnStart.Click += async (_, _) => await StartAsync(estimateOnly: false);
         btnEstimate.Click += async (_, _) => await StartAsync(estimateOnly: true);
         btnCancel.Click += (_, _) => cts?.Cancel();
+        btnPause.Text = "Pause";
+        btnPause.Click += (_, _) => SetPaused(!Tools.Paused);
+        tips.SetToolTip(btnPause, "Freezes the encode where it is, freeing the CPU/GPU (e.g. for a game).\nResume carries on from the same spot.");
         actionCard.Controls.Add(actions);
 
         // ----- activity log card -----
@@ -310,10 +314,63 @@ public class MainForm : Form
             Log($"Using FFmpeg: {Tools.Ffmpeg}");
         else
         {
-            Log("FFmpeg not found! Install Shutter Encoder, put ffmpeg.exe + ffprobe.exe next to VideoSqueeze.exe, or add them to PATH.");
+            Log("FFmpeg not found! It comes with VideoSqueeze: reinstall it from github.com/TNT24/VideoSqueeze/releases (or put ffmpeg.exe + ffprobe.exe in the ffmpeg folder next to VideoSqueeze.exe).");
             btnStart.Enabled = btnEstimate.Enabled = false;
         }
         Log("Tip: hover over the settings for explanations. Originals are never modified or deleted.");
+        if (Tools.Ffmpeg != "") RestoreQueue();
+    }
+
+    // ---------- carrying on after a restart ----------
+
+    /// <summary>The unfinished part of a run, so closing the app (or the PC stopping) mid-run doesn't lose the list.</summary>
+    public record QueuedFile(string Path, string? EstimateKey, Estimate? Estimate);
+
+    static readonly string QueuePath =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VideoSqueeze", "queue.json");
+
+    /// <summary>Written while a run is going (the files not finished yet); deleted when it ends normally.</summary>
+    void SaveQueue(IEnumerable<ListViewItem> pending)
+    {
+        try
+        {
+            var files = pending.Where(i => list.Items.Contains(i) && !IsFinished(i)).Select(i =>
+            {
+                var p = (string)i.Tag!;
+                return estimates.TryGetValue(p, out var e) ? new QueuedFile(p, e.Key, e.Estimate) : new QueuedFile(p, null, null);
+            }).ToList();
+            Directory.CreateDirectory(Path.GetDirectoryName(QueuePath)!);
+            File.WriteAllText(QueuePath, JsonSerializer.Serialize(files));
+        }
+        catch { }
+    }
+
+    static void ForgetQueue() { try { File.Delete(QueuePath); } catch { } }
+
+    static bool IsFinished(ListViewItem i) => i.SubItems[2].Text.StartsWith("Done") || i.SubItems[2].Text.StartsWith("Skipped");
+
+    void RestoreQueue()
+    {
+        List<QueuedFile>? files = null;
+        try { if (File.Exists(QueuePath)) files = JsonSerializer.Deserialize<List<QueuedFile>>(File.ReadAllText(QueuePath)); } catch { }
+        files = files?.Where(f => File.Exists(f.Path)).ToList();
+        if (files is not { Count: > 0 }) return;
+        AddPaths(files.Select(f => f.Path));
+        int resumable = 0;
+        foreach (ListViewItem item in list.Items)
+        {
+            var path = (string)item.Tag!;
+            if (IsFinished(item) || files.FirstOrDefault(f => string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase)) is not { } f) continue;
+            if (f.EstimateKey != null && f.Estimate != null) estimates[path] = (f.EstimateKey, f.Estimate);
+            if (ResumeStore.Get(path) is { } r)
+            {
+                item.SubItems[2].Text = $"Paused at {TimeSpan.FromSeconds(r.Done):h\\:mm\\:ss} — carries on";
+                resumable++;
+            }
+        }
+        RefreshEstimates();
+        lblStatus.Text = $"Carried over {files.Count} video(s) from last time. Press Start to carry on where it left off.";
+        Log(lblStatus.Text + (resumable > 0 ? $" {resumable} was part-way through and continues from there." : ""));
     }
 
     static Icon LoadIcon(int size)
@@ -648,6 +705,7 @@ public class MainForm : Form
         // offset, so the next files added would start partway down the list.
         if (list.Items.Count > 0) list.EnsureVisible(0);
         list.Items.Clear();
+        ForgetQueue();
         UpdateEmptyState();
         lblStatus.Text = "Add videos to begin.";
     }
@@ -733,14 +791,19 @@ public class MainForm : Form
                 string path = (string)item.Tag!;
                 item.SubItems[2].Text = "Working…";
                 item.EnsureVisible();
+                SaveQueue(pending.Skip(qi));
                 var squeezer = new Squeezer(settings,
                     msg => BeginInvoke(() => Log(msg)),
                     (phase, frac) => BeginInvoke(() =>
                     {
                         bar.Value = (int)(Math.Clamp(frac, 0, 1) * 1000);
-                        lblStatus.Text = $"File {n} of {pending.Count}  ·  {phase}";
+                        if (!Tools.Paused) lblStatus.Text = $"File {n} of {pending.Count}  ·  {phase}"; // keep "Paused" up
                         item.SubItems[2].Text = phase;
-                    }));
+                    }))
+                {
+                    // Closing the window mid-encode keeps the work so far, to carry on next time; Stop discards it.
+                    KeepUnfinished = () => closeWhenStopped,
+                };
                 try
                 {
                     if (!File.Exists(path)) throw new FileNotFoundException("File no longer exists.");
@@ -770,7 +833,7 @@ public class MainForm : Form
                 catch (OperationCanceledException)
                 {
                     item.SubItems[2].Text = "Stopped";
-                    Log("Stopped by user.");
+                    if (!closeWhenStopped) Log("Stopped by user.");
                     stopped = true;
                     break;
                 }
@@ -789,6 +852,7 @@ public class MainForm : Form
             cts = null;
             queue = null;
             SetRunning(false);
+            if (!closeWhenStopped) ForgetQueue(); // closing mid-run: keep it for next time
         }
         if (closeWhenStopped) { Close(); return; }
         bar.Value = 0;
@@ -987,11 +1051,23 @@ public class MainForm : Form
     void SetRunning(bool running)
     {
         btnStart.Enabled = btnEstimate.Enabled = !running;
-        btnCancel.Enabled = running;
+        btnCancel.Enabled = btnPause.Enabled = running;
+        if (!running) SetPaused(false);
         if (updateInstaller != null) btnUpdate.Enabled = !running;
         foreach (Control c in new Control[] { cbPreset, cbMode, cbCodec, cbSpeed, cbContainer, numVmaf, numQuality, txtOut, chkDiscard })
             c.Enabled = !running;
         if (!running) UpdateEnabled();
+    }
+
+    void SetPaused(bool pause)
+    {
+        if (pause == Tools.Paused) return;
+        Tools.SetPaused(pause);
+        btnPause.Text = pause ? "Resume" : "Pause";
+        if (cts == null) return;
+        KeepAwake(!pause); // let the PC sleep while paused; a frozen encode survives sleep fine
+        lblStatus.Text = pause ? "Paused — press Resume to carry on." : lblStatus.Text.Replace("Paused — press Resume to carry on.", "Resuming…");
+        Log(pause ? "Paused." : "Resumed.");
     }
 
     void Log(string msg)
@@ -1027,12 +1103,23 @@ public class MainForm : Form
     {
         if (cts != null)
         {
-            // Close only once the run has stopped, so its clean-up (deleting the half-written .part file) gets to run.
+            // The work so far is kept (Squeezer.KeepUnfinished) and the list too (SaveQueue): next time, Start carries on.
+            if (e.CloseReason == CloseReason.WindowsShutDown)
+            {
+                // Don't hold up shutdown: what's on disk is enough to carry on from.
+                closeWhenStopped = true;
+                cts.Cancel();
+                base.OnFormClosing(e);
+                return;
+            }
+            // Otherwise close once the run has wound down, so the files are left tidy.
             e.Cancel = true;
             if (closeWhenStopped) return;
-            if (MessageBox.Show(this, "Encoding is in progress. Stop and exit?", Text, MessageBoxButtons.YesNo) == DialogResult.No) return;
+            if (!Tools.Paused && MessageBox.Show(this,
+                    "Encoding is in progress. Exit now?\r\n\r\nThe work so far is kept: next time you open VideoSqueeze, press Start and it carries on from here.",
+                    Text, MessageBoxButtons.YesNo) == DialogResult.No) return;
             closeWhenStopped = true;
-            lblStatus.Text = "Stopping…";
+            lblStatus.Text = "Saving progress…";
             cts.Cancel();
             return;
         }
